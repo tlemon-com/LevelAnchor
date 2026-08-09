@@ -1,0 +1,45 @@
+# --- JUCE Specific (Inside LevelAnchor) ---
+LevelAnchor/Builds/
+LevelAnchor/JuceLibraryCode/
+docs/
+.claude/
+
+# Built release artifacts (output of installer/build-release.bat).
+# installer/LevelAnchor.iss IS published; the .bat is excluded below.
+package/
+
+# --- IDE & OS Noise ---
+.DS_Store
+Thumbs.db
+*.swp
+
+# --- misc ---
+CLAUDE.md
+# Hardcodes local machine paths (sign.bat, signtool.exe) - not for publication.
+installer/build-release.bat
+# Stamped per build by build-release.bat. Source/BuildInfo.h is published and
+# falls back to "dev" when this file is absent.
+LevelAnchor/Source/BuildInfo.generated.h
+
+# Visual Studio files
+.vs/
+*.user
+*.suo
+*.filters
+*.aps
+LevelAnchor/*.user
+LevelAnchor.code-workspace
+
+# Xcode files
+*.xcworkspace
+*.xcuserdata
+*.xcauthoringstate
+
+# --- Compiled Binaries (Just in case) ---
+*.exe
+*.dll
+*.vst3
+*.app
+*.component
+*.lib
+*.pdb

@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<JUCERPROJECT id="EM3S3k" name="LevelAnchor" projectType="audioplug" useAppConfig="0"
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" pluginFormats="buildVST"
+              bundleIdentifier="com.tlemon.levelanchor" companyWebsite="tlemon.com"
+              companyName="tlemon.com" companyCopyright="tlemon.com 2026" pluginManufacturerCode="tlem"
+              pluginCode="LvAn" pluginChannelConfigs="{1,1},{2,2}" pluginVSTCategory="kPlugCategEffect">
+  <MAINGROUP id="SbMkPw" name="LevelAnchor">
+    <GROUP id="{C18A65D4-221A-6A21-4463-F1303AF5749F}" name="Source">
+      <GROUP id="{40C1A2E3-BEB5-2B2F-F437-08FA8AB26783}" name="ui">
+        <FILE id="YQAwYb" name="AboutPanel.h" compile="0" resource="0" file="Source/ui/AboutPanel.h"/>
+        <FILE id="Ld4x6H" name="LedFont4x6.h" compile="0" resource="0" file="Source/ui/LedFont4x6.h"/>
+        <FILE id="Rfc2RD" name="LedFont5x7.h" compile="0" resource="0" file="Source/ui/LedFont5x7.h"/>
+        <FILE id="Z7iLQi" name="MatrixReadout.h" compile="0" resource="0" file="Source/ui/MatrixReadout.h"/>
+        <FILE id="QupYMg" name="Palette.h" compile="0" resource="0" file="Source/ui/Palette.h"/>
+        <FILE id="ERDGSo" name="PixelScreen.h" compile="0" resource="0" file="Source/ui/PixelScreen.h"/>
+        <FILE id="SGr5pk" name="TargetStrip.h" compile="0" resource="0" file="Source/ui/TargetStrip.h"/>
+      </GROUP>
+      <GROUP id="{89741F1B-249D-F00F-4AE4-DEE3CF019EA9}" name="img">
+        <FILE id="VHSDli" name="BebasNeue-Regular.ttf" compile="0" resource="1"
+              file="Source/img/BebasNeue-Regular.ttf"/>
+        <FILE id="GAjGat" name="levelapi2-logo.svg" compile="0" resource="1"
+              file="Source/img/levelapi2-logo.svg"/>
+        <FILE id="PjvF9s" name="logo-tree.svg" compile="0" resource="1" file="Source/img/logo-tree.svg"/>
+      </GROUP>
+      <FILE id="ahJKz8" name="LevelAPI2_dynlib.h" compile="0" resource="0"
+            file="Source/LevelAPI2_dynlib.h"/>
+      <FILE id="Hslhzl" name="LevelApiDynamic.cpp" compile="1" resource="0"
+            file="Source/LevelApiDynamic.cpp"/>
+      <FILE id="EMHcsn" name="LevelApiDynamic.h" compile="0" resource="0"
+            file="Source/LevelApiDynamic.h"/>
+      <FILE id="D3cKAi" name="PluginProcessor.cpp" compile="1" resource="0"
+            file="Source/PluginProcessor.cpp"/>
+      <FILE id="c9Ezzb" name="PluginProcessor.h" compile="0" resource="0"
+            file="Source/PluginProcessor.h"/>
+      <FILE id="cZ1fiD" name="PluginEditor.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.cpp"/>
+      <FILE id="eGID2i" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+    </GROUP>
+  </MAINGROUP>
+  <MODULES>
+    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_plugin_client" showAllCode="1" useLocalCopy="0"
+            useGlobalPath="1"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+  </MODULES>
+  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
+  <EXPORTFORMATS>
+    <VS2022 targetFolder="Builds/VisualStudio2022">
+      <CONFIGURATIONS>
+        <CONFIGURATION isDebug="1" name="Debug" targetName="LevelAnchor" headerPath="$(LIBS)vst/VST_SDK369/VST2_SDK"
+                       postbuildCommand="if defined LEVELANCHOR_NO_INSTALL exit /b 0&#10;if not exist &quot;$(OutDir)$(TargetName).dll&quot; exit /b 0&#10;copy /Y &quot;$(OutDir)$(TargetName).dll&quot; &quot;C:\Program Files\VSTPlugins&quot;&#10;exit /b 0"
+                       useRuntimeLibDLL="0"/>
+        <CONFIGURATION isDebug="0" name="Release" targetName="LevelAnchor" headerPath="$(LIBS)vst/VST_SDK369/VST2_SDK"
+                       postbuildCommand="if defined LEVELANCHOR_NO_INSTALL exit /b 0&#10;if not exist &quot;$(OutDir)$(TargetName).dll&quot; exit /b 0&#10;copy /Y &quot;$(OutDir)$(TargetName).dll&quot; &quot;C:\Program Files\VSTPlugins&quot;&#10;exit /b 0"
+                       useRuntimeLibDLL="0"/>
+        <CONFIGURATION isDebug="1" name="Debug-static" targetName="LevelAnchor" headerPath="$(LIBS)vst/VST_SDK369/VST2_SDK&#10;$(LevelAPI2_root)/Source&#10;$(LevelAPI2_root)/Source/RealtimeAdjuster/"
+                       postbuildCommand="if defined LEVELANCHOR_NO_INSTALL exit /b 0&#10;if not exist &quot;$(OutDir)$(TargetName).dll&quot; exit /b 0&#10;copy /Y &quot;$(OutDir)$(TargetName).dll&quot; &quot;C:\Program Files\VSTPlugins&quot;&#10;exit /b 0"
+                       defines="__STATIC_LIB__=1" libraryPath="$(LevelAPI2_root)/Builds/VisualStudio2022/x64/Debug-x64_d/Static Library/"
+                       useRuntimeLibDLL="0"/>
+        <CONFIGURATION isDebug="0" name="Release-static" targetName="LevelAnchor" headerPath="$(LIBS)vst/VST_SDK369/VST2_SDK&#10;$(LevelAPI2_root)/Source&#10;$(LevelAPI2_root)/Source/RealtimeAdjuster/"
+                       postbuildCommand="if defined LEVELANCHOR_NO_INSTALL exit /b 0&#10;if not exist &quot;$(OutDir)$(TargetName).dll&quot; exit /b 0&#10;copy /Y &quot;$(OutDir)$(TargetName).dll&quot; &quot;C:\Program Files\VSTPlugins&quot;&#10;exit /b 0"
+                       useRuntimeLibDLL="0" defines="__STATIC_LIB__=1" libraryPath="$(LevelAPI2_root)/Builds/VisualStudio2022/x64/Release-x64/Static Library/"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_audio_basics" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+        <MODULEPATH id="juce_audio_plugin_client" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+        <MODULEPATH id="juce_core" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+        <MODULEPATH id="juce_data_structures" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+        <MODULEPATH id="juce_events" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+        <MODULEPATH id="juce_graphics" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="../../../../../Libraries/JUCE_8.0.4/modules"/>
+      </MODULEPATHS>
+    </VS2022>
+  </EXPORTFORMATS>
+</JUCERPROJECT>

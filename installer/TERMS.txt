@@ -1,0 +1,92 @@
+LEVELANCHOR - TERMS OF USE
+
+
+These terms cover LevelAnchor as distributed by this installer: the
+compiled plugin, with the loudness engine built into it.
+
+Three things are involved, and they are not licensed the same way:
+
+    1. LevelAnchor, the plugin you are installing.
+    2. LevelAPI2, the closed-source loudness engine inside it.
+    3. The LevelAnchor source code, published on GitHub.
+
+Section 3 is MIT licensed and the full MIT text is at the end of this
+document. Sections 1 and 2 are not.
+
+
+1. USING LEVELANCHOR
+
+LevelAnchor is free to use, including on monetized streams and channels.
+There is nothing to pay, nothing to register and nothing to sign. The
+plugin contains no network code of any kind: no telemetry, no accounts,
+no activation and no update check.
+
+Install it on as many machines as you like. You may pass the unmodified
+installer on to other people.
+
+A LevelAPI license is required in two cases:
+
+    - Use by, or on behalf of, an organization with more than
+      EUR 500k of annual revenue. This is a hard line, not an
+      approximation. Below it, nothing is owed and nothing is signed.
+
+    - Bundling or redistributing LevelAnchor as part of another
+      product or service.
+
+In both cases the license is the same annual LevelAPI license that
+covers the engine. To arrange one, or to ask which side of the line you
+are on, get in touch through https://levelapi.dev/?ref=installer
+
+LevelAnchor is provided as is, without warranty of any kind. See the
+warranty disclaimer at the end of this document, which applies to the
+plugin as a whole.
+
+
+2. THE LEVELAPI2 ENGINE
+
+The real-time loudness measurement and adjustment core inside
+LevelAnchor is LevelAPI2, a closed-source library owned by tlemon.com
+and licensed separately to businesses. It is not covered by the MIT
+license below, and it is not included in the public source code.
+
+You may not extract, disassemble, reverse engineer or otherwise
+separate LevelAPI2 from the plugin, or use it in anything other than
+LevelAnchor itself. Nothing in this section restricts what you may do
+with the published source code covered by section 3.
+
+
+3. THE LEVELANCHOR SOURCE CODE
+
+Everything around the engine - the audio processor and editor, the user
+interface, the parameter handling, and the code that loads and drives
+LevelAPI2 - is open source under the MIT license:
+
+    https://github.com/tlemon-com/LevelAnchor
+
+Read it, copy from it, build it, ship it in your own product. A build
+made from that source is inert without the engine, which is licensed
+separately.
+
+
+MIT LICENSE
+
+Copyright (c) 2026 tlemon.com
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
