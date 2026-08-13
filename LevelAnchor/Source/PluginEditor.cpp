@@ -17,8 +17,8 @@ using namespace juce;
     watermark that doubles as the status lamp.
 
     The editor pulls, and is never pushed to: a 30 Hz timer polls the
-    processor's lock-free UIDisplayData snapshot and hands each child the one
-    value it draws. Nothing here touches the audio thread.
+    processor's UIDisplayData snapshot and hands each child the one value it
+    draws. Nothing here touches the audio thread.
 */
 
 namespace
@@ -301,10 +301,12 @@ void LevelAnchorAudioProcessorEditor::timerCallback()
 
     prevIndex = data.index;
 
-    const float warmup      = data.warmupProgress; // 0.0 = warming up, 1.0 = fully active
+    // Warmup is reported as seconds remaining, so 0 covers both "finished" and
+    // "this preset has none" -- the default presets correct from the first block
+    // and never show the countdown at all.
+    const float warmupLeft  = data.warmupSecondsLeft;
     const float currentLUFS = data.LUFS;
-    const float warmup_sec  = data.warmup_sec;
-    const bool  warmedUp    = warmup >= 1.f;
+    const bool  warmedUp    = warmupLeft <= 0.f;
     const float target      = targetParamValue != nullptr ? targetParamValue->load()
                                                           : TARGET_DEFAULT;
 
@@ -330,7 +332,7 @@ void LevelAnchorAudioProcessorEditor::timerCallback()
     // deviation is fixable by calibration (bias) or needs response tuning (spread).
     // max is the worst excursion. Blank until warmed up, since the processor only
     // accumulates post-warmup (devRms stays 0 until then).
-    if (warmup >= 1.f && data.devRms > 0.f)
+    if (warmedUp && data.devRms > 0.f)
         devLabel.setText(String::formatted("dev %.2f LU  (spread %.2f  bias %+.2f  max %.2f)",
                                            data.devRms, data.devSpread, data.devBias, data.devMax),
                          dontSendNotification);
@@ -338,8 +340,7 @@ void LevelAnchorAudioProcessorEditor::timerCallback()
         devLabel.setText("dev --", dontSendNotification);
 
     // Status / LUFS readouts
-    const int secs = (int)std::round((warmup_sec + 1) * (1.f - warmup));
-    if (secs > 0)
+    if (! warmedUp)
     {
         // Still warming up: no elapsed time and no integrated value yet, so the
         // small windows show placeholders and dim. The countdown itself goes in
@@ -348,8 +349,7 @@ void LevelAnchorAudioProcessorEditor::timerCallback()
         outputReadout.setText("--.- LUFS");
         timerReadout.setDimmed(true);
         outputReadout.setDimmed(true);
-        pixelScreen.setStatusText(secs > warmup_sec ? "ready"
-                                                   : String::formatted("warmup %d", secs));
+        pixelScreen.setStatusText(String::formatted("warmup %d", (int)std::ceil(warmupLeft)));
         pixelScreen.setGainText({}); // nothing to label yet -- neither trace is
         pixelScreen.setDevText({});  // being written during warmup
     }
@@ -368,9 +368,14 @@ void LevelAnchorAudioProcessorEditor::timerCallback()
         // mantissa starts dropping whole seconds long before it wraps. index is
         // never negative and the guard keeps samplerate from being 0, so the
         // quotient needs no separate clamp.
+        // The warmup, if the preset has one, is subtracted so the clock reads
+        // zero at the moment correction reaches full strength. Clamped at zero
+        // because a preset carrying a longer warmup can be selected after a
+        // shorter one has already finished, which would otherwise subtract more
+        // than has elapsed and print a negative field.
         const int64_t sr = data.samplerate > 0 ? (int64_t)data.samplerate : 48000;
-        const int totalSec = static_cast<int>(data.index / sr)
-                             - static_cast<int>(warmup_sec);
+        const int totalSec = jmax(0, static_cast<int>(data.index / sr)
+                                       - static_cast<int>(data.warmupSecondsMax));
         const String elapsed = String::formatted("%02d:%02d:%02d",
             totalSec / 3600, (totalSec % 3600) / 60, totalSec % 60);
         timerReadout.setText(elapsed);

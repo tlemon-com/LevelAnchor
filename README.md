@@ -122,8 +122,8 @@ against it, or you are looking at the library for your own product, get in touch
 ## In OBS
 
 Add LevelAnchor as a filter on the audio source you want anchored — open the source's pop-up
-menu and select `Filters` → `+` → `VST 2.x Plug-in` — then set the target and leave it. The
-plugin needs a short warmup before it starts correcting.
+menu and select `Filters` → `+` → `VST 2.x Plug-in` — then set the target and leave it.
+Correction starts on the first block of audio; there is no warmup to wait through.
 
 ## License
 

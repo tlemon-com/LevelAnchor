@@ -2,6 +2,9 @@
 
 #include <JuceHeader.h>
 
+#include <atomic>  // std::atomic and std::atomic_thread_fence (the UI seqlock, below)
+#include <cstdint>
+
 
 // Two permanent linking paths, chosen by the build configuration: only the
 // *-static configurations in LevelAnchor.jucer define __STATIC_LIB__=1, and an
@@ -81,12 +84,17 @@ public:
         int64_t index = 0;
         int samplerate = 44100;
         float appliedGainDb = 0.0f;
-        float warmupProgress = 0.0f;
-        float calibWarmup = 0.0f; // calibration-meter warmup 0..1 (post main warmup); deviation stats gate on this reaching 1
+        // Warmup, all in seconds. Zero means "nothing to wait for", which is
+        // both the finished state and what a preset with no warmup reports from
+        // the first block. warmupSecondsMax is the configured length, so the UI
+        // can show a countdown and offset the elapsed timer without hardcoding
+        // any duration of its own.
+        float warmupSecondsLeft = 0.0f;
+        float warmupSecondsMax  = 0.0f;
+        float calibSecondsLeft  = 0.0f; // calibration ramp, starts once the main warmup ends; deviation stats gate on it reaching 0
         float LUFS = 0.0f;
         float PSR = 0.0f;
         float LRA = 0.0f;
-        float warmup_sec = 3; // WARMUP_SEC_FULL
         float currentMValue = 0.0f; // realtime fused loudness indicator for meter
         // False when no adjuster exists (dynamic build with the LevelAPI2 DLL
         // missing/refused), i.e. every field above is meaningless and audio is
@@ -103,7 +111,8 @@ public:
         float devMax    = 0.0f;
     };
 
-    /** Called from UI thread periodically (40 ms). Returns latest snapshot (thread-safe). */
+    /** Called from the message thread periodically (~30 Hz). Returns the latest
+        snapshot; never blocks, allocates or touches the audio thread's state. */
     UIDisplayData getLatestUIDisplayData() const noexcept;
 
     juce::AudioProcessorValueTreeState& getValueTreeState() noexcept { return parameters_; }
@@ -132,7 +141,28 @@ private:
     int64_t samplesCounter_ = 0; // see UIDisplayData::index for why this is 64-bit
     int samplesSinceLastUIDispatch_ = 0;
     int uiDispatchIntervalSamples_ = 1920; // 40ms @48k
-    mutable std::atomic<UIDisplayData> latestUIDisplayData_;
+
+    // --- Audio thread -> UI thread handoff: a single-writer/single-reader seqlock ---
+    // CRITICAL: do not "simplify" this back to std::atomic<UIDisplayData>. The
+    // struct is far wider than the 16 bytes x64 can move atomically, so such an
+    // atomic is not lock-free -- the compiler falls back to a lock, which
+    // processBlock would then take on every dispatch while the editor's timer
+    // contends for it.
+    //
+    // The counter is odd only while a write is in progress. A reader that sees
+    // an odd count, or a different count after its copy, saw a torn snapshot
+    // and reads again. The writer never blocks and never retries.
+    //
+    // A seqlock is the right shape here because the snapshot must stay coherent
+    // across fields: the deviation figures are derived from the same running
+    // sums at the same instant and satisfy rms^2 = bias^2 + spread^2, which
+    // per-field atomics would break.
+    std::atomic<uint32_t> uiSeq_{ 0 };
+    UIDisplayData uiSnapshot_;                 // written under uiSeq_ (audio thread)
+    mutable UIDisplayData uiSnapshotFallback_; // last clean read; message thread only
+
+    // Audio thread only. Publishes one snapshot: no allocation, no lock.
+    void publishUIDisplayData(const UIDisplayData& data) noexcept;
 
     // --- Deviation accumulators (integrated LUFS vs target, since last reset) ---
     // Running sums let us derive bias/RMS/max in O(1) per UI dispatch with no

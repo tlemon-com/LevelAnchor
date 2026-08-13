@@ -90,9 +90,9 @@ public:
         repaint(readoutRepaintArea(devSlot()));
     }
 
-    /** Big centred status message under the watermark (warmup countdown /
-        "ready"). Separate slot from the gain readout: 5x7 font, screen centre,
-        where there's room for words. Empty string hides it. */
+    /** Big centred status message under the watermark (the warmup countdown, on
+        presets that have one). Separate slot from the gain readout: 5x7 font,
+        screen centre, where there's room for words. Empty string hides it. */
     void setStatusText(const juce::String& text)
     {
         if (text == statusText)

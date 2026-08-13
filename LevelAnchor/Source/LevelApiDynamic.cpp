@@ -123,8 +123,10 @@ namespace
         if (fn.RealtimeAdjuster_SetPreset == nullptr)             return "RealtimeAdjuster_SetPreset";
         if (fn.RealtimeAdjuster_SetTargetLUFS == nullptr)         return "RealtimeAdjuster_SetTargetLUFS";
         if (fn.RealtimeAdjuster_GetLastAppliedGainDb == nullptr)  return "RealtimeAdjuster_GetLastAppliedGainDb";
-        if (fn.RealtimeAdjuster_GetLongWindowWarmup == nullptr)   return "RealtimeAdjuster_GetLongWindowWarmup";
-        if (fn.RealtimeAdjuster_GetCalibrationWarmup == nullptr)  return "RealtimeAdjuster_GetCalibrationWarmup";
+        if (fn.RealtimeAdjuster_GetWarmupSecondsLeft == nullptr)  return "RealtimeAdjuster_GetWarmupSecondsLeft";
+        if (fn.RealtimeAdjuster_GetWarmupSecondsMax == nullptr)   return "RealtimeAdjuster_GetWarmupSecondsMax";
+        if (fn.RealtimeAdjuster_GetCalibrationSecondsLeft == nullptr)  return "RealtimeAdjuster_GetCalibrationSecondsLeft";
+        if (fn.RealtimeAdjuster_GetCalibrationSecondsMax == nullptr)   return "RealtimeAdjuster_GetCalibrationSecondsMax";
         if (fn.RealtimeAdjuster_GetLUFS == nullptr)               return "RealtimeAdjuster_GetLUFS";
         if (fn.RealtimeAdjuster_GetPSR == nullptr)                return "RealtimeAdjuster_GetPSR";
         if (fn.RealtimeAdjuster_GetLRA == nullptr)                return "RealtimeAdjuster_GetLRA";
@@ -399,14 +401,27 @@ float DynamicRealtimeAdjuster::GetLastAppliedGainDb() const
     return object_ != nullptr ? api_->fn.RealtimeAdjuster_GetLastAppliedGainDb (object_) : 0.0f;
 }
 
-float DynamicRealtimeAdjuster::GetLongWindowWarmup() const
+// With no engine these report 0, i.e. "nothing left to wait for" -- the same
+// answer the caller gets from a preset with no warmup, and the honest one when
+// audio is passing through untouched.
+float DynamicRealtimeAdjuster::GetWarmupSecondsLeft() const
 {
-    return object_ != nullptr ? api_->fn.RealtimeAdjuster_GetLongWindowWarmup (object_) : 0.0f;
+    return object_ != nullptr ? api_->fn.RealtimeAdjuster_GetWarmupSecondsLeft (object_) : 0.0f;
 }
 
-float DynamicRealtimeAdjuster::GetCalibrationWarmup() const
+float DynamicRealtimeAdjuster::GetWarmupSecondsMax() const
 {
-    return object_ != nullptr ? api_->fn.RealtimeAdjuster_GetCalibrationWarmup (object_) : 0.0f;
+    return object_ != nullptr ? api_->fn.RealtimeAdjuster_GetWarmupSecondsMax (object_) : 0.0f;
+}
+
+float DynamicRealtimeAdjuster::GetCalibrationSecondsLeft() const
+{
+    return object_ != nullptr ? api_->fn.RealtimeAdjuster_GetCalibrationSecondsLeft (object_) : 0.0f;
+}
+
+float DynamicRealtimeAdjuster::GetCalibrationSecondsMax() const
+{
+    return object_ != nullptr ? api_->fn.RealtimeAdjuster_GetCalibrationSecondsMax (object_) : 0.0f;
 }
 
 float DynamicRealtimeAdjuster::GetLUFS() const

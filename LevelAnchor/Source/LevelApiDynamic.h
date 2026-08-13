@@ -130,8 +130,14 @@ public:
     void ProcessBlock (juce::AudioBuffer<float>& buffer);
 
     float GetLastAppliedGainDb() const;
-    float GetLongWindowWarmup() const;
-    float GetCalibrationWarmup() const;
+
+    /** Warmup reporting, all in seconds. The *Left pair counts down to 0 and
+        stays there, so "<= 0" is the done test; the *Max pair reports the
+        configured length, which is 0 when the preset has no warmup at all. */
+    float GetWarmupSecondsLeft() const;
+    float GetWarmupSecondsMax() const;
+    float GetCalibrationSecondsLeft() const;
+    float GetCalibrationSecondsMax() const;
     float GetLUFS() const;
     float GetPSR() const;
     float GetLRA() const;

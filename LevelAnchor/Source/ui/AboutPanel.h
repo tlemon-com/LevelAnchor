@@ -250,7 +250,9 @@ private:
     std::unique_ptr<juce::Drawable> logo, treeLogo;
     juce::TextButton visitButton, copyButton, closeButton;
     juce::HyperlinkButton creditLink;
-    juce::String statusLine { "warming up..." };
+    // Replaced by setStatusLine on the first UI tick that carries audio; this is
+    // only what shows before any has arrived.
+    juce::String statusLine { "waiting for audio..." };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutPanel)
 };

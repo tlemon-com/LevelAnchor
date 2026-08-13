@@ -132,7 +132,7 @@ void LevelAnchorAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuf
             UIDisplayData data; // engineReady defaults to false
             data.samplerate = static_cast<int>(getSampleRate());
             samplesSinceLastUIDispatch_ = 0;
-            latestUIDisplayData_.store(data);
+            publishUIDisplayData(data);
         }
 
         return;
@@ -162,8 +162,9 @@ void LevelAnchorAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuf
         UIDisplayData data;
         data.engineReady = true;
         data.appliedGainDb = adjuster_->GetLastAppliedGainDb();
-        data.warmupProgress = adjuster_->GetLongWindowWarmup();
-        data.calibWarmup = adjuster_->GetCalibrationWarmup();
+        data.warmupSecondsLeft = adjuster_->GetWarmupSecondsLeft();
+        data.warmupSecondsMax  = adjuster_->GetWarmupSecondsMax();
+        data.calibSecondsLeft  = adjuster_->GetCalibrationSecondsLeft();
         data.LUFS = adjuster_->GetLUFS();
         data.PSR = adjuster_->GetPSR();
         data.LRA = adjuster_->GetLRA();
@@ -172,18 +173,18 @@ void LevelAnchorAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuf
         data.samplerate = (int)getSampleRate();
 
         // --- Deviation of integrated LUFS from target, accumulated since reset ---
-        // Gate on CALIBRATION warmup, not just main warmup. GetLUFS reads the
-        // calibration meter, which starts empty at main-warmup-end and ramps its
-        // own strength in over kCalibMeterWarmupSec -- so for that window GetLUFS is
-        // genuinely far off target (correction is weakest exactly when we'd start
-        // measuring). Accumulating then poisons the since-reset stats, and because
-        // the sums are cumulative that early error only decays as 1/N (the
-        // "high deviation start"). calibWarmup stays 0 through main warmup and
-        // reaches 1 only once GetLUFS is fully settled, so this is the honest gate.
+        // Gate on the CALIBRATION ramp, not the main warmup. GetLUFS reads the
+        // calibration meter, which starts empty when the main warmup ends and ramps
+        // its own strength in from there -- so for that window GetLUFS is genuinely
+        // far off target (correction is weakest exactly when we'd start measuring).
+        // Accumulating then poisons the since-reset stats, and because the sums are
+        // cumulative that early error only decays as 1/N. The calibration countdown
+        // covers the whole of that window and hits 0 only once GetLUFS is settled,
+        // so it is the honest gate.
         // Hard gate (don't count until settled) rather than a fade: a weighted fade
         // would still admit the bad early samples into the sums. One sample per UI
         // dispatch (~40 ms).
-        if (data.calibWarmup >= 1.0f)
+        if (data.calibSecondsLeft <= 0.0f)
         {
             const double err = (double)data.LUFS - (double)targetLufsParamValue_.load();
             ++devCount_;
@@ -204,13 +205,54 @@ void LevelAnchorAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuf
         }
 
         samplesSinceLastUIDispatch_ = 0;
-        latestUIDisplayData_.store(data);
+        publishUIDisplayData(data);
     }
 }
 
+// Audio thread. Writer half of the seqlock described in PluginProcessor.h: two
+// relaxed stores and a struct copy, with release fences so a reader that sees
+// the closing count also sees the whole snapshot behind it.
+void LevelAnchorAudioProcessor::publishUIDisplayData(const UIDisplayData& data) noexcept
+{
+    const uint32_t seq = uiSeq_.load(std::memory_order_relaxed); // audio thread is the only writer
+
+    uiSeq_.store(seq + 1, std::memory_order_relaxed); // odd: write in progress
+    std::atomic_thread_fence(std::memory_order_release);
+
+    uiSnapshot_ = data;
+
+    std::atomic_thread_fence(std::memory_order_release);
+    uiSeq_.store(seq + 2, std::memory_order_relaxed); // even: snapshot complete
+}
+
+// Message thread. Reader half: copy, then check the count did not move. A retry
+// costs a ~64-byte copy and is already rare (the writer holds the odd count for
+// no longer than that same copy), so the attempt limit is only there so a
+// writer descheduled mid-write cannot spin the UI thread. Falling back to the
+// previous clean snapshot for one frame is invisible at 30 Hz.
 LevelAnchorAudioProcessor::UIDisplayData LevelAnchorAudioProcessor::getLatestUIDisplayData() const noexcept
 {
-    return latestUIDisplayData_.load();
+    constexpr int kMaxAttempts = 8;
+
+    for (int attempt = 0; attempt < kMaxAttempts; ++attempt)
+    {
+        const uint32_t before = uiSeq_.load(std::memory_order_acquire);
+
+        if ((before & 1u) != 0u) // write in progress
+            continue;
+
+        UIDisplayData data = uiSnapshot_;
+
+        std::atomic_thread_fence(std::memory_order_acquire);
+
+        if (uiSeq_.load(std::memory_order_relaxed) == before)
+        {
+            uiSnapshotFallback_ = data; // message thread only, no synchronisation needed
+            return data;
+        }
+    }
+
+    return uiSnapshotFallback_;
 }
 
 //==============================================================================
