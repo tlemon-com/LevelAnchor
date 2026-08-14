@@ -13,6 +13,11 @@ It is built for streamers, primarily OBS Studio, and it is a showcase of **Level
 loudness engine doing the actual work, which is licensed separately (see
 [The engine](#the-engine-and-why-it-is-not-in-this-repository) below).
 
+**To just use the plugin**, take the signed installer or the VST2 ZIP from the
+[latest release](https://github.com/tlemon-com/LevelAnchor/releases/latest). The
+[LevelAnchor plugin page](https://levelapi.dev/levelanchor/?ref=github) has the install guide,
+an OBS setup walkthrough and the free-use terms.
+
 ## What it does
 
 - **One control.** A LUFS target, -24 to -8, default -16, set from the 32-LED strip on the left.
@@ -46,11 +51,14 @@ evaluating the library — the code that loads LevelAPI2 and calls it from an au
 This repository is a working reference integration rather than a sample: the released binary is
 built from this same source, differing only in which linking configuration was used. If you are
 here to see how LevelAPI2 is integrated into a real product, start with
-[`Source/LevelApiDynamic.h`](LevelAnchor/Source/LevelApiDynamic.h) and its `.cpp`.
+[`Source/LevelApiDynamic.h`](LevelAnchor/Source/LevelApiDynamic.h) and its `.cpp`, alongside the
+[LevelAPI2 loudness SDK documentation](https://levelapi.dev/manual.html?ref=github), which covers
+the C API those files call.
 
 ## Distributed files
 
-**The released plugin** is a complete, working build with LevelAPI2 linked in statically. There is
+**The [released plugin](https://github.com/tlemon-com/LevelAnchor/releases/latest)** is a
+complete, working build with LevelAPI2 linked in statically. There is
 no DLL to install, no key to enter and nothing to configure: drop it in your VST folder and it
 works.
 
@@ -117,13 +125,17 @@ that was defined at build time, otherwise from a `certificate.txt` sitting next 
 
 **Getting the library.** LevelAPI2 is not a public download. If you want to build and run
 against it, or you are looking at the library for your own product, get in touch through
-[levelapi.dev](https://levelapi.dev/?ref=github).
+[the LevelAPI2 loudness library site](https://levelapi.dev/?ref=github).
 
 ## In OBS
 
 Add LevelAnchor as a filter on the audio source you want anchored — open the source's pop-up
 menu and select `Filters` → `+` → `VST 2.x Plug-in` — then set the target and leave it.
 Correction starts on the first block of audio; there is no warmup to wait through.
+
+The menu path is not obvious the first time; there is a
+[step-by-step OBS walkthrough with screenshots](https://levelapi.dev/levelanchor/?ref=github#obs)
+if you want it.
 
 ## License
 
@@ -133,7 +145,8 @@ Three layers, and they are not the same thing:
   it, ship it in your own product. The integration code serves as implementation example.
 - **LevelAPI2**, the engine, is closed source and licensed separately on an annual B2B basis. MIT
   covers none of it, it is not in this repository, and a build made from this source does nothing
-  useful until you have it. [levelapi.dev](https://levelapi.dev/?ref=github).
+  useful until you have it. See the
+  [LevelAPI2 licence terms](https://levelapi.dev/?ref=github#licensing).
 - **The released plugin** is free to use, including on monetized streams and channels. Above
   €500k of annual organization revenue, a LevelAPI license is required — the same license that
   covers the engine. The threshold is a hard line, not a suggestion; below it, there is nothing
@@ -142,4 +155,5 @@ Three layers, and they are not the same thing:
 ## Support
 
 One-to-one help requires a LevelAPI license. For feedback, and for anything to do with licensing
-the engine, go through [levelapi.dev](https://levelapi.dev/?ref=github).
+the engine, go through the
+[contact details on the LevelAPI site](https://levelapi.dev/?ref=github#licensing).
