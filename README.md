@@ -1,13 +1,13 @@
 # LevelAnchor
 
-A Windows VST plugin that holds a live stream's loudness on a LUFS target, in real time.
+A Windows VST plugin that holds a live audio source's loudness on a LUFS target, in real time.
 
 ![The LevelAnchor plugin window](LevelAnchor-Screenshot.png)
 
 LevelAnchor measures programme loudness continuously and modulates output gain to keep it on
 the target you set. It does not reshape the audio the way a compressor does — it moves the
 level, slowly enough to stay inaudible, and leaves the dynamics alone. Set a target,
-leave it running, and the stream stays where you put it.
+leave it running, and the source stays where you put it.
 
 It is built for streamers, primarily OBS Studio, and it is a showcase of **LevelAPI** — the
 loudness engine doing the actual work, which is licensed separately (see
@@ -132,6 +132,11 @@ against it, or you are looking at the library for your own product, get in touch
 Add LevelAnchor as a filter on the audio source you want anchored — open the source's pop-up
 menu and select `Filters` → `+` → `VST 2.x Plug-in` — then set the target and leave it.
 Correction starts on the first block of audio; there is no warmup to wait through.
+
+Then do the same on every source that makes noise: mic, Desktop Audio, anything else that is
+live. Leave them all on the same target, and set the balance the way you always did, on the
+mixer's volume sliders. OBS has no filter slot on the master output, and per-source is the
+better place for it anyway: it is what keeps the balance between sources steady.
 
 The menu path is not obvious the first time; there is a
 [step-by-step OBS walkthrough with screenshots](https://levelapi.dev/levelanchor/?ref=github#obs)
