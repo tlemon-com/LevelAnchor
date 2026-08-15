@@ -1,0 +1,19 @@
+# Line endings are decided here, not by each machine's core.autocrlf, so the repo
+# behaves the same for everyone who clones it.
+#
+# Everything text: LF in the repo AND LF in the working copy. Nothing is converted
+# in either direction, so Git never has to rewrite a file it just read, and the
+# "LF will be replaced by CRLF" warnings (which git-gui reports as an index
+# failure) cannot occur. MSVC, Projucer and Inno Setup all read LF fine.
+* text=auto eol=lf
+
+# Exception: TERMS.txt is the installer's licence page (LicenseFile= in
+# LevelAnchor.iss) and is also installed to disk as LevelAnchor-LICENSE.txt.
+# Inno streams it into a RichEdit control, which is unreliable with lone LF, so
+# this one stays CRLF in the working copy. Still stored as LF in the repo.
+installer/TERMS.txt text eol=crlf
+
+# Binary, never convert. Auto-detection already gets these right; listed so a
+# corrupted checkout is never blamed on the attributes.
+*.png binary
+*.ttf binary
