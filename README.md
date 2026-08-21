@@ -18,13 +18,16 @@ loudness engine doing the actual work, which is licensed separately (see
 [LevelAnchor plugin page](https://levelapi.dev/levelanchor/?ref=github) has the install guide,
 an OBS setup walkthrough and the free-use terms.
 
+**To see it working first**, there is a short video: [the same stream before and after, then the
+OBS setup](https://www.youtube.com/watch?v=pQphGZ2-RlU) (2:44).
+
 ## What it does
 
 - **One control.** A LUFS target, -24 to -8, default -16, set from the 32-LED strip on the left.
 - **Shows its work.** Scrolling deviation trace against a fixed target line, the gain currently
   being applied, the integrated output level, deviation from target, and a session timer.
 - **Will not clip.** After the gain change, the signal passes through a high-quality
-  EBU-approved limiter with its ceiling at -1 dB, per EBU R 128 — so anchoring a quiet source
+  EBU-spec limiter with its ceiling at -1 dB, per EBU R 128 — so anchoring a quiet source
   upward cannot push peaks into clipping.
 - **Runs unattended.** The plugin does its job with the UI closed, which is how it is normally used.
 - **Entirely local.** No network code of any kind: no telemetry, no accounts, no activation, no
