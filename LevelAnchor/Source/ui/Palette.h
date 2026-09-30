@@ -3,9 +3,10 @@
 #include <JuceHeader.h>
 
 /*
-    Palette -- the single source of truth for every green in LevelAnchor's UI.
-    Header-only. Used by: ui/TargetStrip.h, ui/AboutPanel.h, ui/PixelScreen.h,
-    ui/MatrixReadout.h, PluginEditor.cpp.
+    Palette -- the single source of truth for every green in LevelAnchor's UI,
+    plus the status and peak accents. Header-only. Used by: ui/TargetStrip.h,
+    ui/AboutPanel.h, ui/PixelScreen.h, ui/MatrixReadout.h, ui/PeakLed.h,
+    PluginEditor.cpp.
 
     Two coordinated families, each a tonal ramp off ONE base colour, so
     retuning is a one-line edit here rather than hunting hex values across
@@ -50,8 +51,18 @@ namespace Palette
     inline const juce::Colour kStatusOrange { 0xffffa040 };
     inline const juce::Colour kStatusRed    { 0xffff4040 };
 
+    // --- Peak accent: the engine's peak stage is holding the level down ------
+    // The one colour that means "overshoot guard / compressor / limiter
+    // acting": the top-bar PeakLed and the gain-trace columns where it acted.
+    // Kept yellower than kStatusOrange on purpose, because orange belongs to
+    // the deviation lamp and the two must not read as the same signal.
+    inline const juce::Colour kPeak    { 0xffffc23a };
+    inline const juce::Colour kPeakDim = kPeak.darker(1.2f);                        // LED, light action
+    inline const juce::Colour kPeakOff = kPeak.darker(5.0f).withSaturation(0.35f); // LED, unlit
+
     // Deviation trace (PixelScreen's upper band). Deliberately outside both
-    // green families -- the plugin's palette is green/white/black, and white
+    // green families -- the plugin's palette is green/white/black (plus the
+    // status and peak accents), and white
     // is what distinguishes the deviation history line from the brand-green
     // gain trace sharing the same screen.
     //

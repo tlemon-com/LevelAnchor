@@ -15,7 +15,7 @@
 //
 // DynamicRealtimeAdjuster mirrors RealtimeAdjuster method-for-method, so this
 // alias is enough to make the whole processor path-agnostic; the only other
-// #if in this class is the single construction line in prepareToPlay.
+// #if in this class is the construction in createAdjuster.
 //
 // CRITICAL: the #includes must stay INSIDE the guard. Each configuration's
 // header search path reaches only its own library headers, so an include placed
@@ -41,8 +41,10 @@
     - Exposes Target LUFS (-24..-8). The adjuster preset is fixed at Medium
       (Slow/Fast still exist in the RealtimeAdjuster core for internal testing).
     - Periodically (~40 ms) prepares UI data snapshot.
+    - Reports the engine's fixed look-ahead delay to the host.
 */
-class LevelAnchorAudioProcessor : public juce::AudioProcessor
+class LevelAnchorAudioProcessor : public juce::AudioProcessor,
+                                  private juce::Timer
 {
 public:
     LevelAnchorAudioProcessor();
@@ -96,6 +98,10 @@ public:
         float PSR = 0.0f;
         float LRA = 0.0f;
         float currentMValue = 0.0f; // realtime fused loudness indicator for meter
+        // Deepest peak-stage reduction (guard + compressor + limiter) since the
+        // previous snapshot, in dB, >= 0. Drives the editor's PEAK LED and the
+        // amber marks on the gain trace.
+        float gainReductionDb = 0.0f;
         // False when no adjuster exists (dynamic build with the LevelAPI2 DLL
         // missing/refused), i.e. every field above is meaningless and audio is
         // passing through untouched. The editor ignores this for now; it is
@@ -124,6 +130,35 @@ private:
     // is the only acceptable failure mode.
     std::unique_ptr<AdjusterType> adjuster_;
 
+    // The word length the host quantises our output to, which drives the
+    // engine's dither. Every host this plugin targets runs in float, so 0: no
+    // dither.
+    static constexpr unsigned int kHostBitDepth = 0;
+
+    // Builds and configures an engine. Allocates and initialises meters, so
+    // never call it from processBlock. Returns null when the dynamic path has
+    // no usable LevelAPI2 DLL.
+    std::unique_ptr<AdjusterType> createAdjuster(double sampleRate, int numChannels, float targetLufs) const;
+
+    // --- Reset: a fresh engine built off the audio thread, swapped in by processBlock ---
+    // Resetting the running engine in place would allocate on the audio thread,
+    // and doing it from the message thread would race ProcessBlock. Instead:
+    //   1. processBlock sees the one-shot "reset" parameter and raises resetRequested_.
+    //   2. timerCallback (message thread) builds a new engine into pendingAdjuster_.
+    //   3. processBlock takes it, hands the old one to retiredAdjuster_, then
+    //      clears pendingAdjuster_.
+    //   4. timerCallback deletes the retired engine.
+    // One slot each way. The timer only fills pendingAdjuster_ when it is empty,
+    // and processBlock writes retiredAdjuster_ before emptying it, so an engine
+    // is never overwritten before it is deleted.
+    std::atomic<bool>          resetRequested_{ false };
+    std::atomic<AdjusterType*> pendingAdjuster_{ nullptr };
+    std::atomic<AdjusterType*> retiredAdjuster_{ nullptr };
+    int numChannels_ = 2; // what prepareToPlay built with; the timer rebuilds with the same
+
+    void timerCallback() override;
+    void discardPendingAdjusters() noexcept; // only while no audio is running
+
     // Parameters
     juce::AudioProcessorValueTreeState parameters_;
     std::atomic<float> targetLufsParamValue_{ TARGET_DEFAULT };
@@ -141,6 +176,7 @@ private:
     int64_t samplesCounter_ = 0; // see UIDisplayData::index for why this is 64-bit
     int samplesSinceLastUIDispatch_ = 0;
     int uiDispatchIntervalSamples_ = 1920; // 40ms @48k
+    float gainReductionPeakDb_ = 0.0f; // audio thread: deepest reduction since the last snapshot
 
     // --- Audio thread -> UI thread handoff: a single-writer/single-reader seqlock ---
     // CRITICAL: do not "simplify" this back to std::atomic<UIDisplayData>. The
@@ -168,7 +204,7 @@ private:
     // Running sums let us derive bias/RMS/max in O(1) per UI dispatch with no
     // history buffer. Sampled at the UI dispatch rate, post-warmup only, so the
     // cold-start intro is excluded (consistent with the calibration meter/timer).
-    // Cleared by ResetDeviationStats() on the reset one-shot and on prepareToPlay.
+    // Cleared by ResetDeviationStats() when a reset engine is swapped in and on prepareToPlay.
     uint64_t devCount_    = 0;   // number of samples accumulated
     double   devSumErr_   = 0.0; // sum of (LUFS - target)   -> bias
     double   devSumErrSq_ = 0.0; // sum of (LUFS - target)^2 -> rms

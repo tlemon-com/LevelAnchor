@@ -4,10 +4,10 @@
     Implementation of the runtime-loaded (dynamic) LevelAPI2 path.
     See LevelApiDynamic.h for what this is and why it is commented so heavily.
 
-    This is the ONLY translation unit that may include LevelAPI2_dynlib.h: that
-    header carries non-inline function definitions (InitFunctions,
-    LevelAPI2_LoadDLL, LevelAPI2_UnloadDLL), so a second includer would produce
-    duplicate-symbol link errors.
+    This is the only translation unit that includes LevelAPI2_dynlib.h. That
+    header brings <windows.h> with it and defines its loader functions in place
+    (InitFunctions, LevelAPI2_LoadDLL, LevelAPI2_UnloadDLL), so keeping it here
+    keeps both out of every other file.
 */
 
 #include "LevelApiDynamic.h"
@@ -26,10 +26,6 @@
 
 namespace
 {
-    // LevelAPI2 works in 32-bit float throughout, which is also what JUCE hands
-    // us; the C API still wants the bit depth spelled out at create/reset time.
-    constexpr unsigned int kBitDepth = 32;
-
     /** The DLL filename for this build. Matches the naming used by the
         #pragma comment(lib, ...) block in PluginProcessor.cpp -- JUCE_DEBUG is
         JUCE's portable spelling of the same condition. */
@@ -122,7 +118,9 @@ namespace
         if (fn.RealtimeAdjuster_Reset == nullptr)                 return "RealtimeAdjuster_Reset";
         if (fn.RealtimeAdjuster_SetPreset == nullptr)             return "RealtimeAdjuster_SetPreset";
         if (fn.RealtimeAdjuster_SetTargetLUFS == nullptr)         return "RealtimeAdjuster_SetTargetLUFS";
+        if (fn.RealtimeAdjuster_GetLatencySamples == nullptr)     return "RealtimeAdjuster_GetLatencySamples";
         if (fn.RealtimeAdjuster_GetLastAppliedGainDb == nullptr)  return "RealtimeAdjuster_GetLastAppliedGainDb";
+        if (fn.RealtimeAdjuster_GetGainReductionDb == nullptr)    return "RealtimeAdjuster_GetGainReductionDb";
         if (fn.RealtimeAdjuster_GetWarmupSecondsLeft == nullptr)  return "RealtimeAdjuster_GetWarmupSecondsLeft";
         if (fn.RealtimeAdjuster_GetWarmupSecondsMax == nullptr)   return "RealtimeAdjuster_GetWarmupSecondsMax";
         if (fn.RealtimeAdjuster_GetCalibrationSecondsLeft == nullptr)  return "RealtimeAdjuster_GetCalibrationSecondsLeft";
@@ -156,8 +154,8 @@ namespace
 
        #ifdef LEVELANCHOR_CERTIFICATE_STR
         // ---- Tier 1: certificate compiled in -------------------------------
-        // Licensees: this is the slot to paste yours into (and BeatRig advise
-        // obscuring it in your own source rather than leaving it in plain text).
+        // Licensees: this is the slot to paste yours into. Obscuring it in your
+        // own source, rather than leaving it in plain text, is advised.
         const char* const certificate = LEVELANCHOR_CERTIFICATE_STR;
 
         if (! fn.SetCertificate (certificate, strlen (certificate)))
@@ -277,7 +275,8 @@ LevelApiLibrary::~LevelApiLibrary()
 
 //==============================================================================
 DynamicRealtimeAdjuster::DynamicRealtimeAdjuster (double sampleRate, int numChannels,
-                                                  unsigned int preset, float targetLufs)
+                                                  unsigned int preset, float targetLufs,
+                                                  unsigned int bitdepth)
     : numChannels_ (juce::jlimit (1, (int) max_channels, numChannels))
 {
     const LevelApiLibrary& lib = LevelApiLibrary::getInstance();
@@ -310,11 +309,11 @@ DynamicRealtimeAdjuster::DynamicRealtimeAdjuster (double sampleRate, int numChan
     // up misconfigured, this line says exactly what went in.
     DBG ("LevelAnchor: Create_RealtimeAdjuster(channels=" + juce::String (numChannels_)
           + ", samplerate=" + juce::String (roundedRate)
-          + ", bitdepth=" + juce::String ((int) kBitDepth) + ")");
+          + ", bitdepth=" + juce::String ((int) bitdepth) + ")");
 
     object_ = fn.Create_RealtimeAdjuster ((unsigned int) numChannels_,
                                           (unsigned int) roundedRate,
-                                          kBitDepth);
+                                          bitdepth);
 
     if (object_ == nullptr)
     {
@@ -332,7 +331,7 @@ DynamicRealtimeAdjuster::DynamicRealtimeAdjuster (double sampleRate, int numChan
     // Redundant in principle -- the constructor already configured everything --
     // but mirroring the working path exactly removes one difference between the
     // two, and Reset re-Inits every internal meter from the values below.
-    Reset (numChannels_, sampleRate);
+    Reset (numChannels_, sampleRate, bitdepth);
 }
 
 DynamicRealtimeAdjuster::~DynamicRealtimeAdjuster()
@@ -341,7 +340,7 @@ DynamicRealtimeAdjuster::~DynamicRealtimeAdjuster()
         api_->fn.Destroy_RealtimeAdjuster (object_);
 }
 
-void DynamicRealtimeAdjuster::Reset (int numChannels, double sampleRate)
+void DynamicRealtimeAdjuster::Reset (int numChannels, double sampleRate, unsigned int bitdepth)
 {
     if (object_ == nullptr)
         return;
@@ -351,7 +350,7 @@ void DynamicRealtimeAdjuster::Reset (int numChannels, double sampleRate)
     api_->fn.RealtimeAdjuster_Reset (object_,
                                                 (unsigned int) numChannels_,
                                                 (unsigned int) juce::roundToInt (sampleRate),
-                                                kBitDepth);
+                                                bitdepth);
 }
 
 void DynamicRealtimeAdjuster::SetTargetLUFS (float targetLufs)
@@ -396,9 +395,20 @@ void DynamicRealtimeAdjuster::ProcessBlock (juce::AudioBuffer<float>& buffer)
     }
 }
 
+int DynamicRealtimeAdjuster::GetLatencySamples() const
+{
+    // No engine means audio passes straight through, which adds no delay.
+    return object_ != nullptr ? (int) api_->fn.RealtimeAdjuster_GetLatencySamples (object_) : 0;
+}
+
 float DynamicRealtimeAdjuster::GetLastAppliedGainDb() const
 {
     return object_ != nullptr ? api_->fn.RealtimeAdjuster_GetLastAppliedGainDb (object_) : 0.0f;
+}
+
+float DynamicRealtimeAdjuster::GetGainReductionDb() const
+{
+    return object_ != nullptr ? api_->fn.RealtimeAdjuster_GetGainReductionDb (object_) : 0.0f;
 }
 
 // With no engine these report 0, i.e. "nothing left to wait for" -- the same
@@ -441,8 +451,6 @@ float DynamicRealtimeAdjuster::GetLRA() const
 
 float DynamicRealtimeAdjuster::GetBS1771() const
 {
-    // Note the spelling difference: the C++ class has getBS1771 (lowercase g),
-    // the C API exports GetBS1771. This wrapper follows the C++ class.
     return object_ != nullptr ? api_->fn.RealtimeAdjuster_GetBS1771 (object_) : 0.0f;
 }
 

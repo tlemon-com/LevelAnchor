@@ -25,10 +25,12 @@ OBS setup](https://www.youtube.com/watch?v=pQphGZ2-RlU) (2:44).
 
 - **One control.** A LUFS target, -24 to -8, default -16, set from the 32-LED strip on the left.
 - **Shows its work.** Scrolling deviation trace against a fixed target line, the gain currently
-  being applied, the integrated output level, deviation from target, and a session timer.
-- **Will not clip.** After the gain change, the signal passes through a high-quality
-  EBU-spec limiter with its ceiling at -1 dB, per EBU R 128 — so anchoring a quiet source
-  upward cannot push peaks into clipping.
+  being applied, the integrated output level, deviation from target, and a session timer. An
+  amber PEAK light, and amber marks on the gain trace, show when the peak stage is holding the
+  level down.
+- **Will not clip.** After the gain change, the signal passes through a peak stage ending in a
+  true-peak limiter (4x oversampled) with its ceiling at -1 dBTP, per EBU R 128, so anchoring a
+  quiet source upward cannot push peaks into clipping.
 - **Runs unattended.** The plugin does its job with the UI closed, which is how it is normally used.
 - **Entirely local.** No network code of any kind: no telemetry, no accounts, no activation, no
   update check.
@@ -43,6 +45,19 @@ loudness is only known *after* the audio has played.
   level.
 - Not a limiter — although it contains one. The -1 dB ceiling exists to keep the gain change
   from clipping, not to be driven as a loudness tool.
+
+## What the engine does beyond this plugin
+
+The plugin has one control on purpose. LevelAPI2, the engine underneath it, offers more to
+products built on it. Two examples:
+
+- **Rolling calibration for continuous feeds.** The plugin aims the output's loudness since it
+  was loaded (or reset) at the target, which suits a stream with a start and an end. The engine
+  can aim the last stretch of output at it instead, for channels that never stop.
+- **An adjustable true-peak ceiling.** The plugin keeps it at -1 dBTP.
+
+These are left out of the plugin deliberately, not missing. If your product needs them, see
+[LevelAPI2 licensing](https://levelapi.dev/?ref=github#licensing).
 
 ## The engine, and why it is not in this repository
 

@@ -37,10 +37,14 @@ public:
     }
 
     /** Feed one UI tick (30 Hz). devLU = integrated LUFS minus target,
-        gainDb = currently applied gain. Not warmed up -> no trace dot is
-        written for either trace and the lamp stays neutral. */
-    void pushTick(float devLU, float gainDb, bool warmedUp)
+        gainDb = currently applied gain, peakActive = the engine's peak stage
+        is holding the level down. Not warmed up -> no trace dot is written for
+        either trace and the lamp stays neutral. */
+    void pushTick(float devLU, float gainDb, bool warmedUp, bool peakActive)
     {
+        // Any tick inside a column counts, so a short peak still marks it.
+        peakInColumn = peakInColumn || peakActive;
+
         // --- Status lamp: green within +-1 LU, blend to red at +-3 LU ---
         const float t = warmedUp
             ? juce::jlimit(0.0f, 1.0f, (std::abs(devLU) - 1.0f) / 2.0f)
@@ -63,6 +67,8 @@ public:
                 head = (head + 1) % cols;
                 colRows[(size_t)head]     = warmedUp ? quantizeRow(devLU) : kNoDot;
                 gainColRows[(size_t)head] = warmedUp ? quantizeGainRow(gainDb) : kNoDot;
+                gainColPeak[(size_t)head] = warmedUp && peakInColumn;
+                peakInColumn = false;
                 updateReadoutSides();
                 repaint();
             }
@@ -133,8 +139,10 @@ public:
 
         colRows.assign((size_t)juce::jmax(1, cols), kNoDot);
         gainColRows.assign((size_t)juce::jmax(1, cols), kNoDot);
+        gainColPeak.assign((size_t)juce::jmax(1, cols), false);
         head      = 0;
         tickCount = 0;
+        peakInColumn = false;
 
         rasterizeLogo();
         rebuildBackplate();
@@ -159,15 +167,18 @@ public:
                 g.fillRect(x * kCell, r * kCell, 1, 1);
         }
 
-        // Gain trace: same scheme, lower band, brand green
-        g.setColour(kGainTrace);
+        // Gain trace: same scheme, lower band, brand green -- amber in the
+        // columns where the peak stage acted, matching the top-bar PeakLed.
         for (int x = 0; x < cols; ++x)
         {
             const int age = cols - 1 - x;
             const int idx = (head - age + cols) % cols;
             const int r   = gainColRows[(size_t)idx];
             if (r >= 0)
+            {
+                g.setColour(gainColPeak[(size_t)idx] ? kPeakTrace : kGainTrace);
                 g.fillRect(x * kCell, r * kCell, 1, 1);
+            }
         }
 
         // Topmost layer
@@ -229,6 +240,7 @@ private:
     const juce::Colour kReadout    { Palette::kLcdReadout };
     const juce::Colour kBevel      { Palette::kLcdBevel }; // border, matches MatrixReadout's window edge
     const juce::Colour kGainTrace     { Palette::kBrand };
+    const juce::Colour kPeakTrace     { Palette::kPeak };  // gain-trace columns where the peak stage acted
     const juce::Colour kGainZeroLine  { Palette::kGainZeroLine };
 
     // --- Helpers ------------------------------------------------------------
@@ -610,8 +622,10 @@ private:
 
     std::vector<int> colRows;      // ring: quantized deviation row per column, kNoDot = empty
     std::vector<int> gainColRows;  // ring: quantized gain row per column, kNoDot = empty
-    int head      = 0;          // index of newest column (shared by both rings)
+    std::vector<bool> gainColPeak; // ring: peak stage acted during this column (amber dot)
+    int head      = 0;          // index of newest column (shared by all rings)
     int tickCount = 0;
+    bool peakInColumn = false;  // peakActive seen since the last column was written
 
     std::vector<float> logoCov; // per-cell watermark coverage
     int logoCols = 0, logoRows = 0, logoX = 0, logoY = 0;

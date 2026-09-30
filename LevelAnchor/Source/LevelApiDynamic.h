@@ -24,9 +24,9 @@
                                  between the two linking paths.
 
     Nothing here includes <windows.h> or LevelAPI2_dynlib.h -- both are confined
-    to LevelApiDynamic.cpp, which is the single translation unit allowed to
-    include the latter (it contains non-inline function definitions, so a second
-    includer produces duplicate-symbol link errors).
+    to LevelApiDynamic.cpp. The library header pulls in <windows.h> and defines
+    its loader functions in place (static, so each includer gets its own copy),
+    which is why it stays behind this one translation unit.
 
     Sibling file: LevelApiDynamic.cpp.
 */
@@ -92,8 +92,7 @@ private:
 //==============================================================================
 /** One realtime adjuster instance, obtained from the runtime-loaded library.
 
-    Deliberately mirrors the static RealtimeAdjuster class method-for-method --
-    including the lowercase getBS1771(), which the C API spells GetBS1771() --
+    Deliberately mirrors the static RealtimeAdjuster class method-for-method,
     so that every #if __STATIC_LIB__ block in PluginProcessor stays down to a
     single construction line. That is what stops the two linking paths drifting
     apart over time.
@@ -111,8 +110,13 @@ public:
 
     /** Argument order matches the static RealtimeAdjuster constructor. The C
         API's Create takes neither preset nor target, so both are applied
-        immediately afterwards. */
-    DynamicRealtimeAdjuster (double sampleRate, int numChannels, unsigned int preset, float targetLufs);
+        immediately afterwards.
+
+        bitdepth is the word length the HOST quantises the output to, not the
+        depth of the incoming audio: it drives the engine's dither. 0 means a
+        float host, so no dither. */
+    DynamicRealtimeAdjuster (double sampleRate, int numChannels, unsigned int preset, float targetLufs,
+                             unsigned int bitdepth);
     ~DynamicRealtimeAdjuster();
 
     /** False when the library or the object could not be created -- the caller
@@ -125,11 +129,20 @@ public:
 
     //==========================================================================
     // Mirrors RealtimeAdjuster. Same names, same argument order.
-    void Reset (int numChannels, double sampleRate);
+    // Reset allocates inside the library: call it off the audio thread.
+    void Reset (int numChannels, double sampleRate, unsigned int bitdepth);
     void SetTargetLUFS (float targetLufs);
     void ProcessBlock (juce::AudioBuffer<float>& buffer);
 
+    /** The engine's delay from input to output, in samples. Constant from
+        construction or Reset until the next Reset; report it to the host. */
+    int GetLatencySamples() const;
+
     float GetLastAppliedGainDb() const;
+
+    /** How far the engine's peak control held the programme down during the
+        last block, in dB, 0 or more. */
+    float GetGainReductionDb() const;
 
     /** Warmup reporting, all in seconds. The *Left pair counts down to 0 and
         stays there, so "<= 0" is the done test; the *Max pair reports the

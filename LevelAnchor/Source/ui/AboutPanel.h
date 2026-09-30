@@ -6,7 +6,7 @@
 #include "../BuildInfo.h"
 
 /*
-    AboutPanel + PoweredByBadge -- the funnel surface of LevelAnchor.
+    AboutPanel + PoweredByBadge -- the "about" surface of LevelAnchor.
     Header-only. Siblings: ui/PixelScreen.h, ui/TargetStrip.h, ui/LedFont5x7.h.
 
     PoweredByBadge: two-line centered badge -- "POWERED BY" over
@@ -14,11 +14,11 @@
     screen watermark. Click opens the AboutPanel (wired by the editor via
     onClick).
 
-    AboutPanel: full-editor overlay. Pitch text, live "anchored at X LUFS for
-    HH:MM:SS" line, visit/copy-link buttons for levelapi.dev (with
-    ?ref=levelanchor so plugin-driven traffic is attributable), and a small
-    tlemon.com creator credit using the tree logo. Closes on X, click outside
-    the panel, or Escape.
+    AboutPanel: full-editor overlay. Engine and license text, live "anchored at
+    X LUFS for HH:MM:SS" line, visit/copy-link buttons for levelapi.dev (with
+    ?ref=levelanchor, so the site can count visits that came from the plugin),
+    and a small tlemon.com creator credit using the tree logo. Closes on X,
+    click outside the panel, or Escape.
 */
 
 // ===========================================================================
@@ -161,7 +161,7 @@ public:
 
         content.removeFromTop(12);
 
-        // Pitch: leads with the engine (not the plugin) and states the
+        // Leads with the engine (not the plugin) and states the
         // license requirement plainly. The EUR500k org-revenue figure is a
         // hard threshold, not an approximation -- keep the wording exact.
         g.setColour(juce::Colours::lightgrey);
@@ -176,14 +176,14 @@ public:
 
         content.removeFromTop(6);
 
-        // Dev/business callout: the reference-integration funnel -- distinct
-        // from the streamer pitch above.
+        // For developers who want the engine in their own product.
         g.setColour(Palette::kBrand.withAlpha(0.85f));
         g.setFont(juce::Font(juce::FontOptions(13.5f)));
         g.drawFittedText(
             "Need real-time loudness measurement & adjustment in your own\n"
-            "product? License the engine directly, below.",
-            content.removeFromTop(32), juce::Justification::topLeft, 2);
+            "product? The engine does more than this plugin shows, such as\n"
+            "rolling calibration for 24/7 feeds. License it directly, below.",
+            content.removeFromTop(50), juce::Justification::topLeft, 3);
 
         content.removeFromTop(6);
 
@@ -238,7 +238,7 @@ private:
     juce::Rectangle<int> panelRect() const
     {
         return getLocalBounds().withSizeKeepingCentre(
-            juce::jmin(420, getWidth() - 40), juce::jmin(320, getHeight() - 40));
+            juce::jmin(420, getWidth() - 40), juce::jmin(340, getHeight() - 40));
     }
 
     juce::Rectangle<int> creditLogoRect() const

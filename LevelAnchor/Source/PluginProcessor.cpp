@@ -22,9 +22,14 @@ LevelAnchorAudioProcessor::LevelAnchorAudioProcessor()
             std::make_unique<AudioParameterBool>("reset", "Reset", false)
         })
 {
+    startTimer(50); // services reset requests; see timerCallback
 }
 
-LevelAnchorAudioProcessor::~LevelAnchorAudioProcessor() = default;
+LevelAnchorAudioProcessor::~LevelAnchorAudioProcessor()
+{
+    stopTimer();
+    discardPendingAdjusters();
+}
 
 //==============================================================================
 const String LevelAnchorAudioProcessor::getName() const { return "LevelAnchorAdjuster"; }
@@ -63,28 +68,17 @@ void LevelAnchorAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     // updateAdjusterParamsFromHost doesn't fire on stale defaults.
     targetLufsParamValue_ = targetLUFS;
 
-    // Preset is fixed at Medium (the tuned reference); Slow/Fast remain in the
-    // RealtimeAdjuster core for internal testing but are not user-facing.
-    // The only path-specific code in this class. Both adjusters take the same
-    // arguments in the same order; only the preset differs in type, being a C++
-    // enum on one side and a plain unsigned across the DLL boundary on the other.
-#if __STATIC_LIB__ == 0
-    adjuster_ = std::make_unique<AdjusterType>(sampleRate, numCh, DynamicRealtimeAdjuster::PresetMedium, targetLUFS);
+    numChannels_ = numCh;
+    discardPendingAdjusters(); // a reset built for the old rate must not be swapped in
+    adjuster_ = createAdjuster(sampleRate, numCh, targetLUFS);
 
-    // DLL missing, too old, or certificate refused: drop the engine so audio
-    // passes through untouched. Reported via DBG only -- the editor doesn't
-    // surface this yet; UIDisplayData::engineReady carries it for when it does.
-    if (!adjuster_->isValid())
-    {
-        DBG("LevelAnchor: " + adjuster_->getLastError());
-        adjuster_.reset();
-    }
-#else
-    adjuster_ = std::make_unique<AdjusterType>(sampleRate, numCh, Preset::Medium, targetLUFS);
-    adjuster_->Reset(numCh, sampleRate);
-#endif
+    // The engine's delay is its fixed look-ahead line, constant until the next
+    // Reset, and a reset engine at the same rate has the same one, so this is
+    // the only place it needs reporting. No engine means pass-through, no delay.
+    setLatencySamples(adjuster_ != nullptr ? adjuster_->GetLatencySamples() : 0);
 
     samplesSinceLastUIDispatch_ = 0;
+    gainReductionPeakDb_ = 0.0f;
     samplesCounter_ = 0;
     uiDispatchIntervalSamples_ = static_cast<int>(0.04 * sampleRate_); // ~40ms
 
@@ -93,7 +87,58 @@ void LevelAnchorAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
 
 void LevelAnchorAudioProcessor::releaseResources()
 {
+    discardPendingAdjusters();
     adjuster_.reset();
+}
+
+std::unique_ptr<AdjusterType> LevelAnchorAudioProcessor::createAdjuster(double sampleRate, int numChannels, float targetLufs) const
+{
+    // Preset is fixed at Medium (the tuned reference); Slow/Fast remain in the
+    // RealtimeAdjuster core for internal testing but are not user-facing.
+    // The only path-specific code in this class. Both adjusters take the same
+    // arguments in the same order; only the preset differs in type, being a C++
+    // enum on one side and a plain unsigned across the DLL boundary on the other.
+#if __STATIC_LIB__ == 0
+    auto adjuster = std::make_unique<AdjusterType>(sampleRate, numChannels, DynamicRealtimeAdjuster::PresetMedium, targetLufs, kHostBitDepth);
+
+    // DLL missing, too old, or certificate refused: no engine, so audio
+    // passes through untouched. Reported via DBG only -- the editor doesn't
+    // surface this yet; UIDisplayData::engineReady carries it for when it does.
+    if (!adjuster->isValid())
+    {
+        DBG("LevelAnchor: " + adjuster->getLastError());
+        return nullptr;
+    }
+#else
+    auto adjuster = std::make_unique<AdjusterType>(sampleRate, numChannels, Preset::Medium, targetLufs, kHostBitDepth);
+    adjuster->Reset(numChannels, sampleRate, kHostBitDepth);
+#endif
+
+    return adjuster;
+}
+
+// Message thread. Steps 2 and 4 of the reset handoff described in PluginProcessor.h.
+void LevelAnchorAudioProcessor::timerCallback()
+{
+    // processBlock has not taken the last engine yet; nothing to do until it has.
+    if (pendingAdjuster_.load(std::memory_order_acquire) != nullptr)
+        return;
+
+    // The slot is empty, so any swap has finished and the old engine is ours.
+    delete retiredAdjuster_.exchange(nullptr, std::memory_order_acq_rel);
+
+    if (!resetRequested_.exchange(false, std::memory_order_acq_rel))
+        return;
+
+    if (auto fresh = createAdjuster(sampleRate_, numChannels_, targetLufsParamValue_.load()))
+        pendingAdjuster_.store(fresh.release(), std::memory_order_release);
+}
+
+void LevelAnchorAudioProcessor::discardPendingAdjusters() noexcept
+{
+    resetRequested_.store(false);
+    delete pendingAdjuster_.exchange(nullptr);
+    delete retiredAdjuster_.exchange(nullptr);
 }
 
 void LevelAnchorAudioProcessor::updateAdjusterParamsFromHost()
@@ -141,18 +186,34 @@ void LevelAnchorAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuf
     // Update params if changed
     updateAdjusterParamsFromHost();
 
-    // Check reset flag (resetParam_ cached in prepareToPlay)
+    // Reset, steps 1 and 3 of the handoff described in PluginProcessor.h. The
+    // request only raises a flag; the engine it produces arrives a timer tick
+    // or so later.
     if (resetParam_ != nullptr && resetParam_->get())
     {
-        samplesCounter_ = 0;
-        adjuster_->Reset(getTotalNumInputChannels(), getSampleRate());
-
-        ResetDeviationStats(); // deviation is measured "since reset", so clear it too
+        resetRequested_.store(true, std::memory_order_release);
         resetParam_->operator=(false); // clear flag so it's one-shot
+    }
+
+    if (AdjusterType* fresh = pendingAdjuster_.load(std::memory_order_acquire))
+    {
+        retiredAdjuster_.store(adjuster_.release(), std::memory_order_relaxed);
+        adjuster_.reset(fresh);
+        pendingAdjuster_.store(nullptr, std::memory_order_release); // publishes the retired engine too
+
+        // The target may have moved while the engine was being built.
+        adjuster_->SetTargetLUFS(targetLufsParamValue_.load());
+
+        samplesCounter_ = 0;
+        ResetDeviationStats(); // deviation is measured "since reset", so clear it too
     }
 
     // Process audio
     adjuster_->ProcessBlock(buffer);
+
+    // Deepest reduction since the last snapshot, so a short peak between
+    // dispatches still reaches it.
+    gainReductionPeakDb_ = jmax<float>(gainReductionPeakDb_, adjuster_->GetGainReductionDb());
 
     // Prepare UI snapshot every ~40 ms
     samplesSinceLastUIDispatch_ += buffer.getNumSamples();
@@ -169,6 +230,8 @@ void LevelAnchorAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuf
         data.PSR = adjuster_->GetPSR();
         data.LRA = adjuster_->GetLRA();
         data.currentMValue = jmax<float>(adjuster_->GetBS1771(), -70.f);
+        data.gainReductionDb = gainReductionPeakDb_;
+        gainReductionPeakDb_ = 0.0f;
         data.index = samplesCounter_;
         data.samplerate = (int)getSampleRate();
 

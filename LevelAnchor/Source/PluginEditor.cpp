@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "ui/Palette.h"
 #include "ui/Fonts.h"
+#include "BuildInfo.h"
 
 using namespace juce;
 
@@ -44,6 +45,18 @@ namespace
 
     // Nudged 3px below dead-centre of row one -- pure visual offset.
     constexpr int kWordmarkYOffset = 3;
+
+    // Version tag: top of its 10px line, just under the wordmark's glyphs and
+    // clear of the screen at kScreenTop. Pure visual placement, tune by eye.
+    constexpr int kVersionTop = 50;
+
+    // Peak LED. It lights (dim) from kPeakLightDb of peak-stage reduction and
+    // goes full from kPeakHeavyDb; kPeakHoldMs keeps a short peak visible.
+    // kPeakLightDb also decides which gain-trace columns turn amber.
+    constexpr float  kPeakLightDb = 0.5f;
+    constexpr float  kPeakHeavyDb = 3.0f;
+    constexpr uint32 kPeakHoldMs  = 300;
+    constexpr int    kPeakLedSize = 14;
 }
 
 // =============================================================
@@ -77,6 +90,9 @@ LevelAnchorAudioProcessorEditor::LevelAnchorAudioProcessorEditor(LevelAnchorAudi
     };
     addAndMakeVisible(resetButton);
 
+    // 3b. Peak LED -- top bar, centred on the logo's axis (see resized())
+    addAndMakeVisible(peakLed);
+
     // 4. Target strip -- 32-LED touch strip bound to the "targetLUFS" parameter
     auto& vts = processorRef.getValueTreeState();
     if (auto* targetParam = vts.getParameter("targetLUFS"))
@@ -95,17 +111,19 @@ LevelAnchorAudioProcessorEditor::LevelAnchorAudioProcessorEditor(LevelAnchorAudi
     };
     setupLabel(devLabel,      12.f, Justification::centredLeft);
     setupLabel(timerCaption,   9.f, Justification::centred);
+    setupLabel(peakCaption,    9.f, Justification::centred);
     setupLabel(targetCaption,  9.f, Justification::centred);
     setupLabel(outputCaption,  9.f, Justification::centred);
 
     // Captions are chrome, not data -- plain sans, dim, so the lit readouts
     // above them stay the thing your eye lands on.
-    for (Label* l : { &timerCaption, &targetCaption, &outputCaption })
+    for (Label* l : { &timerCaption, &peakCaption, &targetCaption, &outputCaption })
     {
         l->setFont(Font(FontOptions(9.f)).withExtraKerningFactor(0.20f));
         l->setColour(Label::textColourId, Colours::grey);
     }
     timerCaption.setText("TIME",         dontSendNotification);
+    peakCaption.setText("PEAK",          dontSendNotification);
     targetCaption.setText("TARGET",       dontSendNotification);
     outputCaption.setText("OUTPUT LEVEL", dontSendNotification);
 
@@ -193,6 +211,15 @@ void LevelAnchorAudioProcessorEditor::paint(Graphics& g)
     g.drawText(left, row, Justification::centredLeft);
     g.setColour(Palette::kBrand);
     g.drawText(right, row.withX(kWordmarkLeft + wordmarkLeftW).withWidth(wordmarkRightW), Justification::centredLeft);
+
+    // Version tag, small and dim under the wordmark's right end, so a release
+    // can be told apart at a glance. From BuildInfo.h: a build made without the
+    // release script shows "vdev".
+    g.setColour(Colours::grey);
+    g.setFont(Font(FontOptions(9.f)).withExtraKerningFactor(0.20f));
+    g.drawText("v" LEVELANCHOR_VERSION,
+               juce::Rectangle<int>(kWordmarkLeft, kVersionTop, wordmarkLeftW + wordmarkRightW, 10),
+               Justification::centredRight);
 }
 
 // Combined "LEVEL"+"ANCHOR" bounding rect, used for click/hover hit-testing.
@@ -251,6 +278,14 @@ void LevelAnchorAudioProcessorEditor::resized()
     timerCaption.setBounds(timerReadout.getX(), timerReadout.getBottom() + 3,
                            timerSize.x, 12);
 
+    // Peak LED on the window's centre axis, the same axis as the logo in the
+    // screen and the badge below, level with the reset button; its caption
+    // sits on the TIME caption's line.
+    peakLed.setBounds(getWidth() / 2 - kPeakLedSize / 2,
+                      resetButton.getBounds().getCentreY() - kPeakLedSize / 2,
+                      kPeakLedSize, kPeakLedSize);
+    peakCaption.setBounds(getWidth() / 2 - 30, timerCaption.getY(), 60, 12);
+
     // Bottom band: target readout left, output readout right, badge centered.
     // Both windows are sized for the widest value so neither reflows.
     const auto valueSize = MatrixReadout::preferredSize("-99.9 LUFS");
@@ -296,6 +331,10 @@ void LevelAnchorAudioProcessorEditor::timerCallback()
 
     auto data = processorRef.getLatestUIDisplayData();
 
+    // Before the early return below, so the LED's hold still runs out (and the
+    // LED goes dark) when audio stops and the snapshot stops changing.
+    updatePeakLed(data.index != prevIndex ? data.gainReductionDb : 0.f);
+
     if (data.index == prevIndex)
         return; // nothing new from the processor
 
@@ -316,7 +355,7 @@ void LevelAnchorAudioProcessorEditor::timerCallback()
     const float devLU = (warmedUp && currentLUFS > -48.f)
         ? (currentLUFS - target)
         : 0.f;
-    pixelScreen.pushTick(devLU, data.appliedGainDb, warmedUp);
+    pixelScreen.pushTick(devLU, data.appliedGainDb, warmedUp, data.gainReductionDb >= kPeakLightDb);
 
     // Target value readout under the strip (setText no-ops if unchanged)
     targetReadout.setText(String::formatted("%.1f LUFS", target));
@@ -388,6 +427,30 @@ void LevelAnchorAudioProcessorEditor::timerCallback()
 
     // No editor-wide repaint: labels repaint themselves on setText, and the
     // PixelScreen repaints itself only on column advance / status change.
+}
+
+// A rise shows at once and restarts the hold; a fall waits for the hold to run
+// out. gainReductionDb is already the deepest value since the previous snapshot
+// (the processor keeps a max-hold), so no peak is missed between ticks.
+void LevelAnchorAudioProcessorEditor::updatePeakLed(float gainReductionDb)
+{
+    const int level = gainReductionDb >= kPeakHeavyDb ? PeakLed::Heavy
+                    : gainReductionDb >= kPeakLightDb ? PeakLed::Light
+                                                      : PeakLed::Off;
+    const uint32 now = Time::getMillisecondCounter();
+
+    if (level >= peakShown)
+    {
+        peakShown = level;
+        if (level != PeakLed::Off)
+            peakHoldUntilMs = now + kPeakHoldMs;
+    }
+    else if ((int32)(now - peakHoldUntilMs) >= 0) // wrap-safe "hold has run out"
+    {
+        peakShown = level;
+    }
+
+    peakLed.setLevel(peakShown);
 }
 
 // Ctrl+click anywhere on the editor background toggles the diagnostics readout;

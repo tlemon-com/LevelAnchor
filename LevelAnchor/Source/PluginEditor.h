@@ -6,6 +6,7 @@
 #include "ui/MatrixReadout.h"
 #include "ui/TargetStrip.h"
 #include "ui/AboutPanel.h"
+#include "ui/PeakLed.h"
 
 // ===============================================================
 // Editor Class
@@ -40,7 +41,9 @@ private:
 
     juce::TextButton resetButton;
 
-    PoweredByBadge poweredBy;       // bottom-center funnel badge; opens the About panel
+    PeakLed peakLed;                // top bar, on the logo's axis: peak stage acting
+
+    PoweredByBadge poweredBy;       // bottom-center "powered by" badge; opens the About panel
     AboutPanel     aboutPanel;      // full-editor overlay (hidden by default)
 
     // Small LCD windows -- same 5x7 font and cell pitch as the big screen
@@ -51,6 +54,7 @@ private:
     // Labels
     juce::Label devLabel;           // Deviation diagnostics (Ctrl+click background toggles)
     juce::Label timerCaption;       // "TIME" caption under the timer readout
+    juce::Label peakCaption;        // "PEAK" caption under the peak LED
     juce::Label targetCaption;      // "TARGET" caption under its readout
     juce::Label outputCaption;      // "OUTPUT LEVEL" caption under its readout
 
@@ -66,6 +70,12 @@ private:
     void mouseDown(const juce::MouseEvent& e) override; // Ctrl+click: toggle diagnostics; also opens About if on the wordmark
     void mouseMove(const juce::MouseEvent& e) override;  // pointing-hand cursor over the wordmark
     int64_t prevIndex = -1; // matches UIDisplayData::index (64-bit sample count)
+
+    // Peak LED state: the level shown and when its hold runs out, so a short
+    // peak stays visible for a moment. See updatePeakLed().
+    void updatePeakLed(float gainReductionDb);
+    int          peakShown       = PeakLed::Off;
+    juce::uint32 peakHoldUntilMs = 0;
 
     // Wordmark hit area -- widths computed once in resized() (font metrics are
     // fixed since the window doesn't resize) and reused by paint() (two-tone

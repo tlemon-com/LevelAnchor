@@ -1,5 +1,10 @@
 #pragma once
 
+// Build revision of the LevelAPI2 release this header ships with. GetRevision()
+// returns the revision of the DLL actually loaded; comparing the two catches a
+// header and a binary that came from different releases.
+#define LEVELAPI2_HEADER_REVISION 202609280
+
 //#include <iostream> // used for printf()
 
 #ifdef __cplusplus
@@ -20,6 +25,8 @@ extern "C" {
 enum DataRanges
 {
 	max_channels = 16,
+	// Not a limit: every Analyse, Adjust and RealtimeAdjuster call takes any number of frames,
+	// from one upward. Kept so code that refers to it still compiles.
 	max_frames = (16 * 1024) // samples per channel
 };
 
@@ -85,6 +92,38 @@ enum MeterTypes
 	AdjustLevel_NoPeak,
 };
 
+// Loudness standards for SetPresetStandard(). One value per standard AND per variant of it:
+// two variants of the same document can want opposite settings, and ATSC A/85 long form and
+// short form are exactly that - long form is dialogue-gated with NO relative gate, short form
+// is full mix with a relative gate.
+//
+// The values are explicit and permanent, so a value means the same thing in every version of
+// this library that has it. SetPresetStandard returns false for a standard the loaded library
+// does not know and changes nothing, so check the return rather than assuming it applied.
+//
+// To list what the loaded library actually supports, walk GetStandardCount() and
+// GetStandardAt() instead of hardcoding this list - a library built later will simply offer
+// more entries, and one built earlier will offer fewer.
+enum LoudnessStandards
+{
+	LEVELAPI2_STANDARD_NONE                  = 0,
+
+	LEVELAPI2_STANDARD_EBU_R128              = 100, // -23 LUFS, relative gate -10 LU, -1 dBTP
+	LEVELAPI2_STANDARD_EBU_R128_2010         = 101, // withdrawn 2010 edition, relative gate -8 LU
+	LEVELAPI2_STANDARD_EBU_R128_S2_STREAMING = 102, // adapted stream, -18 LUFS
+	LEVELAPI2_STANDARD_EBU_R128_S4_CINEMA    = 103, // anchor-based on dialogue loudness
+
+	LEVELAPI2_STANDARD_ATSC_A85_LONGFORM     = 200, // -24 LKFS, dialogue gate, no relative gate, -2 dBTP
+	LEVELAPI2_STANDARD_ATSC_A85_SHORTFORM    = 201, // -24 LKFS, full mix, relative gate -10 LU, -2 dBTP
+
+	LEVELAPI2_STANDARD_ARIB_TRB32            = 300, // -24 LKFS, relative gate -10 LU, -1 dBTP
+
+	LEVELAPI2_STANDARD_FREETV_OP59           = 400, // -24 LKFS, relative gate -10 LU, -2 dBTP
+
+	LEVELAPI2_STANDARD_ITU_BS1770_1          = 500, // ungated
+	LEVELAPI2_STANDARD_ITU_BS1770_4          = 501, // gated -10 LU
+};
+
 typedef void* LevelAPI2Ptr;
 typedef void* LevelAPI2_RealtimeAdjusterPtr;
 
@@ -119,6 +158,13 @@ typedef bool (*LevelAPI2_SetAdjustLevel_Ptr) (LevelAPI2Ptr obj, const float dB);
 
 typedef bool (*LevelAPI2_SetPresetEBU_R128_Ptr) (LevelAPI2Ptr obj);
 typedef bool (*LevelAPI2_SetPresetATSC_Ptr) (LevelAPI2Ptr obj);
+
+typedef bool (*LevelAPI2_SetPresetStandard_Ptr) (LevelAPI2Ptr obj, const enum LoudnessStandards standard);
+typedef enum LoudnessStandards(*LevelAPI2_GetPresetStandard_Ptr) (LevelAPI2Ptr obj);
+typedef int (*LevelAPI2_GetStandardCount_Ptr) (LevelAPI2Ptr obj);
+typedef enum LoudnessStandards(*LevelAPI2_GetStandardAt_Ptr) (LevelAPI2Ptr obj, const int index);
+typedef const char* (*LevelAPI2_GetStandardName_Ptr) (LevelAPI2Ptr obj, const enum LoudnessStandards standard);
+typedef const char* (*LevelAPI2_GetStandardDescription_Ptr) (LevelAPI2Ptr obj, const enum LoudnessStandards standard);
 
 typedef enum SurroundOrders(*LevelAPI2_GetSurroundOrder_Ptr) (LevelAPI2Ptr obj);
 typedef bool (*LevelAPI2_SetSurroundOrder_Ptr) (LevelAPI2Ptr obj, enum SurroundOrders type);
@@ -179,6 +225,11 @@ typedef float (*LevelAPI2_tablePos2PSR_Ptr) (LevelAPI2Ptr obj, const int pos);
 typedef int (*LevelAPI2_LUFS2tablePos_Ptr) (LevelAPI2Ptr obj, const float lufs);
 typedef float (*LevelAPI2_tablePos2LUFS_Ptr) (LevelAPI2Ptr obj, const int pos);
 
+// RealtimeAdjuster: Create, Reset, SetProgramLengthSeconds and Destroy allocate, so call them
+// off the audio thread and never during an Adjust call. Adjust and AdjustInterleaved never
+// allocate or lock, and take any number of frames per call. Every other getter and setter is
+// safe from any thread, except GetLevel, which reads a live meter: call it from the thread that
+// calls Adjust, between calls. A setter takes effect at the start of the next Adjust call.
 typedef LevelAPI2_RealtimeAdjusterPtr(*LevelAPI2_RealtimeAdjuster_Create_Ptr) (const unsigned int channels, const unsigned int samplerate, const unsigned int bitdepth);
 typedef void (*LevelAPI2_RealtimeAdjuster_Destroy_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
 typedef bool (*LevelAPI2_RealtimeAdjuster_Adjust_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj, float** samples, const unsigned int sample_frames);
@@ -200,6 +251,30 @@ typedef float (*LevelAPI2_RealtimeAdjuster_GetLRA_Ptr) (LevelAPI2_RealtimeAdjust
 typedef float (*LevelAPI2_RealtimeAdjuster_GetBS1771_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
 typedef bool (*LevelAPI2_RealtimeAdjuster_GetLimiterEnabled_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
 typedef bool (*LevelAPI2_RealtimeAdjuster_SetLimiterEnabled_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj, const bool enable);
+// The delay between a sample going in and the same sample coming out, in samples. Constant
+// from Create or Reset until the next Reset, whatever the preset or the limiter switch; delay
+// the picture by it to keep lip-sync.
+typedef unsigned int (*LevelAPI2_RealtimeAdjuster_GetLatencySamples_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
+// How far the adjuster's peak control held the programme down during the last Adjust call,
+// in dB, 0 or more: for a gain-reduction meter.
+typedef float (*LevelAPI2_RealtimeAdjuster_GetGainReductionDb_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
+// How far back the adjuster's calibration looks, in seconds of programme. 0, the default, is
+// the whole stream since Create or the last Reset, which suits a finite programme with a Reset
+// at its start. A continuous (24/7) feed sets a length; 900 is the tested value. Accepted: 0,
+// or 900 to 86400. Anything else returns false and changes nothing. Kept across Reset. Uses
+// about 0.9 KB of memory per second of length. It restarts the calibration without a jump in
+// gain; set it right after Create, before any audio, and that costs nothing.
+typedef bool (*LevelAPI2_RealtimeAdjuster_SetProgramLengthSeconds_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj, const unsigned int seconds);
+typedef unsigned int (*LevelAPI2_RealtimeAdjuster_GetProgramLengthSeconds_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
+// The true-peak ceiling the adjuster's limiter holds, in dBTP; -1.0, the EBU R128 figure, by
+// default. The limiter measures with a 4x oversampled true-peak estimate and holds the ceiling
+// on that estimate. On material with strong content close to half the sample rate (noise, some
+// synthesised or lossy sources) a BS.1770 true-peak meter can read up to about 0.6 dB higher;
+// set the ceiling that much lower for a guarantee on such material. Accepted: -12.0 to 0.0.
+// Anything else returns false and changes nothing. Kept across Reset. Mid-stream, a lower
+// ceiling is reached within 20 ms, and until then peaks stay under the ceiling before it.
+typedef bool (*LevelAPI2_RealtimeAdjuster_SetTruePeakCeilingDb_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj, const float dbtp);
+typedef float (*LevelAPI2_RealtimeAdjuster_GetTruePeakCeilingDb_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
 
 
 struct LevelAPI2_FunctionHandles
@@ -234,6 +309,13 @@ struct LevelAPI2_FunctionHandles
 
 	LevelAPI2_SetPresetEBU_R128_Ptr SetPresetEBU_R128;
 	LevelAPI2_SetPresetATSC_Ptr SetPresetATSC;
+
+	LevelAPI2_SetPresetStandard_Ptr SetPresetStandard;
+	LevelAPI2_GetPresetStandard_Ptr GetPresetStandard;
+	LevelAPI2_GetStandardCount_Ptr GetStandardCount;
+	LevelAPI2_GetStandardAt_Ptr GetStandardAt;
+	LevelAPI2_GetStandardName_Ptr GetStandardName;
+	LevelAPI2_GetStandardDescription_Ptr GetStandardDescription;
 
 	LevelAPI2_GetSurroundOrder_Ptr GetSurroundOrder;
 	LevelAPI2_SetSurroundOrder_Ptr SetSurroundOrder;
@@ -286,7 +368,7 @@ struct LevelAPI2_FunctionHandles
 	LevelAPI2_GetHistogramPSR_Ptr GetHistogramPSR;
 
 	LevelAPI2_RealtimeAdjuster_Create_Ptr Create_RealtimeAdjuster;
-	LevelAPI2_RealtimeAdjuster_Destroy_Ptr Destroy_RealtimeAdjuster; 
+	LevelAPI2_RealtimeAdjuster_Destroy_Ptr Destroy_RealtimeAdjuster;
 	LevelAPI2_RealtimeAdjuster_Adjust_Ptr RealtimeAdjuster_Adjust;
 	LevelAPI2_RealtimeAdjuster_AdjustInterleaved_Ptr RealtimeAdjuster_AdjustInterleaved;
 	LevelAPI2_RealtimeAdjuster_Reset_Ptr RealtimeAdjuster_Reset;
@@ -307,6 +389,10 @@ struct LevelAPI2_FunctionHandles
 
 	LevelAPI2_RealtimeAdjuster_GetLimiterEnabled_Ptr RealtimeAdjuster_GetLimiterEnabled;
 	LevelAPI2_RealtimeAdjuster_SetLimiterEnabled_Ptr RealtimeAdjuster_SetLimiterEnabled;
+	LevelAPI2_RealtimeAdjuster_GetLatencySamples_Ptr RealtimeAdjuster_GetLatencySamples;
+	LevelAPI2_RealtimeAdjuster_GetGainReductionDb_Ptr RealtimeAdjuster_GetGainReductionDb;
+	LevelAPI2_RealtimeAdjuster_SetProgramLengthSeconds_Ptr RealtimeAdjuster_SetProgramLengthSeconds;
+	LevelAPI2_RealtimeAdjuster_GetProgramLengthSeconds_Ptr RealtimeAdjuster_GetProgramLengthSeconds;
 
 
 	LevelAPI2_dB2float_Ptr dB2float;
@@ -319,6 +405,9 @@ struct LevelAPI2_FunctionHandles
 	LevelAPI2_LUFS2tablePos_Ptr LUFS2tablePos;
 	LevelAPI2_tablePos2LUFS_Ptr tablePos2LUFS;
 
+	LevelAPI2_RealtimeAdjuster_SetTruePeakCeilingDb_Ptr RealtimeAdjuster_SetTruePeakCeilingDb;
+	LevelAPI2_RealtimeAdjuster_GetTruePeakCeilingDb_Ptr RealtimeAdjuster_GetTruePeakCeilingDb;
+
 };
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -330,7 +419,7 @@ struct LevelAPI2_FunctionHandles
 #define GETHANDLE_FUNC CreateSOHandle
 
 // helper function to create the pointers to the functions in the library
-void* CreateSOHandle(void* lib_handle, const char* functionname)
+static void* CreateSOHandle(void* lib_handle, const char* functionname)
 {
 	void* ambigious = (void*)dlsym(lib_handle, functionname);
 	char* errorSO = 0;
@@ -347,7 +436,7 @@ void* CreateSOHandle(void* lib_handle, const char* functionname)
 #define GETHANDLE_FUNC CreateSOHandle
 
 // helper function to create the pointers to the functions in the library
-void* CreateSOHandle(void* lib_handle, const char* functionname)
+static void* CreateSOHandle(void* lib_handle, const char* functionname)
 {
 	void* ambigious = (void*)dlsym(lib_handle, functionname);
 	char* errorSO = 0;
@@ -361,7 +450,7 @@ void* CreateSOHandle(void* lib_handle, const char* functionname)
 #endif
 
 #ifdef UNICODE
-tstring ConvertToTString(const char* text)
+static tstring ConvertToTString(const char* text)
 {
 	// Get the length of the multibyte string
 	size_t length = strlen(text);
@@ -384,11 +473,11 @@ tstring ConvertToTString(const char* text)
 #endif
 
 #if defined(_WIN32) || defined(_WIN64)
-HMODULE InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
+static HMODULE InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
 #elif defined(__APPLE__)
-void* InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
+static void* InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
 #elif defined(__linux__)
-void* InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
+static void* InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
 #endif
 {
 	levelAPI2->SetCertificate = NULL;
@@ -421,6 +510,13 @@ void* InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles* level
 
 	levelAPI2->SetPresetEBU_R128 = NULL;
 	levelAPI2->SetPresetATSC = NULL;
+
+	levelAPI2->SetPresetStandard = NULL;
+	levelAPI2->GetPresetStandard = NULL;
+	levelAPI2->GetStandardCount = NULL;
+	levelAPI2->GetStandardAt = NULL;
+	levelAPI2->GetStandardName = NULL;
+	levelAPI2->GetStandardDescription = NULL;
 
 	levelAPI2->GetSurroundOrder = NULL;
 	levelAPI2->SetSurroundOrder = NULL;
@@ -503,6 +599,12 @@ void* InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles* level
 	levelAPI2->RealtimeAdjuster_GetBS1771 = NULL;
 	levelAPI2->RealtimeAdjuster_GetLimiterEnabled = NULL;
 	levelAPI2->RealtimeAdjuster_SetLimiterEnabled = NULL;
+	levelAPI2->RealtimeAdjuster_GetLatencySamples = NULL;
+	levelAPI2->RealtimeAdjuster_GetGainReductionDb = NULL;
+	levelAPI2->RealtimeAdjuster_SetProgramLengthSeconds = NULL;
+	levelAPI2->RealtimeAdjuster_GetProgramLengthSeconds = NULL;
+	levelAPI2->RealtimeAdjuster_SetTruePeakCeilingDb = NULL;
+	levelAPI2->RealtimeAdjuster_GetTruePeakCeilingDb = NULL;
 
 
 	// handle to loaded library module, returns a handle to the DLL, otherwise NULL
@@ -580,6 +682,13 @@ void* InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles* level
 
 	levelAPI2->SetPresetEBU_R128 = (LevelAPI2_SetPresetEBU_R128_Ptr)GETHANDLE_FUNC(lib_handle, "SetPresetEBU_R128");
 	levelAPI2->SetPresetATSC = (LevelAPI2_SetPresetATSC_Ptr)GETHANDLE_FUNC(lib_handle, "SetPresetATSC");
+
+	levelAPI2->SetPresetStandard = (LevelAPI2_SetPresetStandard_Ptr)GETHANDLE_FUNC(lib_handle, "SetPresetStandard");
+	levelAPI2->GetPresetStandard = (LevelAPI2_GetPresetStandard_Ptr)GETHANDLE_FUNC(lib_handle, "GetPresetStandard");
+	levelAPI2->GetStandardCount = (LevelAPI2_GetStandardCount_Ptr)GETHANDLE_FUNC(lib_handle, "GetStandardCount");
+	levelAPI2->GetStandardAt = (LevelAPI2_GetStandardAt_Ptr)GETHANDLE_FUNC(lib_handle, "GetStandardAt");
+	levelAPI2->GetStandardName = (LevelAPI2_GetStandardName_Ptr)GETHANDLE_FUNC(lib_handle, "GetStandardName");
+	levelAPI2->GetStandardDescription = (LevelAPI2_GetStandardDescription_Ptr)GETHANDLE_FUNC(lib_handle, "GetStandardDescription");
 
 	levelAPI2->GetSurroundOrder = (LevelAPI2_GetSurroundOrder_Ptr)GETHANDLE_FUNC(lib_handle, "GetSurroundOrder");
 	levelAPI2->SetSurroundOrder = (LevelAPI2_SetSurroundOrder_Ptr)GETHANDLE_FUNC(lib_handle, "SetSurroundOrder");
@@ -662,12 +771,18 @@ void* InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles* level
 	levelAPI2->RealtimeAdjuster_GetBS1771 = (LevelAPI2_RealtimeAdjuster_GetBS1771_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_GetBS1771");
 	levelAPI2->RealtimeAdjuster_GetLimiterEnabled = (LevelAPI2_RealtimeAdjuster_GetLimiterEnabled_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_GetLimiterEnabled");
 	levelAPI2->RealtimeAdjuster_SetLimiterEnabled = (LevelAPI2_RealtimeAdjuster_SetLimiterEnabled_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_SetLimiterEnabled");
+	levelAPI2->RealtimeAdjuster_GetLatencySamples = (LevelAPI2_RealtimeAdjuster_GetLatencySamples_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_GetLatencySamples");
+	levelAPI2->RealtimeAdjuster_GetGainReductionDb = (LevelAPI2_RealtimeAdjuster_GetGainReductionDb_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_GetGainReductionDb");
+	levelAPI2->RealtimeAdjuster_SetProgramLengthSeconds = (LevelAPI2_RealtimeAdjuster_SetProgramLengthSeconds_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_SetProgramLengthSeconds");
+	levelAPI2->RealtimeAdjuster_GetProgramLengthSeconds = (LevelAPI2_RealtimeAdjuster_GetProgramLengthSeconds_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_GetProgramLengthSeconds");
+	levelAPI2->RealtimeAdjuster_SetTruePeakCeilingDb = (LevelAPI2_RealtimeAdjuster_SetTruePeakCeilingDb_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_SetTruePeakCeilingDb");
+	levelAPI2->RealtimeAdjuster_GetTruePeakCeilingDb = (LevelAPI2_RealtimeAdjuster_GetTruePeakCeilingDb_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_GetTruePeakCeilingDb");
 
 	return lib_handle;
 };
 
 #if defined(_WIN32) || defined(_WIN64)
-void* LevelAPI2_LoadDLL(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
+static void* LevelAPI2_LoadDLL(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
 {
 	void* dll_handle = (HMODULE*)malloc(sizeof(HMODULE));
 	HMODULE temp_handle = InitFunctions(libPath, levelAPI2);
@@ -687,7 +802,7 @@ void* LevelAPI2_LoadDLL(const char* libPath, struct LevelAPI2_FunctionHandles* l
 	}
 	return dll_handle;
 }
-void LevelAPI2_UnloadDLL(void* dll_handle)
+static void LevelAPI2_UnloadDLL(void* dll_handle)
 {   // close the dynamicly loaded library
 	if (dll_handle)
 	{
@@ -712,7 +827,7 @@ void LevelAPI2_UnloadDLL(void* dll_handle)
 	}
 }
 #elif defined (__APPLE__)
-void* LevelAPI2_LoadDLL(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
+static void* LevelAPI2_LoadDLL(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
 {
 	void* dll_handle = InitFunctions(libPath, levelAPI2);
 	if (!dll_handle)
@@ -722,13 +837,13 @@ void* LevelAPI2_LoadDLL(const char* libPath, struct LevelAPI2_FunctionHandles* l
 	}
 	return dll_handle;
 }
-void LevelAPI2_UnloadDLL(void* dll_handle)
+static void LevelAPI2_UnloadDLL(void* dll_handle)
 {   // close the dynamicly loaded library
 	if (dll_handle)
 		dlclose(dll_handle);
 }
 #elif defined (__linux__)
-void* LevelAPI2_LoadDLL(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
+static void* LevelAPI2_LoadDLL(const char* libPath, struct LevelAPI2_FunctionHandles* levelAPI2)
 {
 	void* dll_handle = InitFunctions(libPath, levelAPI2);
 	if (!dll_handle)
@@ -738,7 +853,7 @@ void* LevelAPI2_LoadDLL(const char* libPath, struct LevelAPI2_FunctionHandles* l
 	}
 	return dll_handle;
 }
-void LevelAPI2_UnloadDLL(void* dll_handle)
+static void LevelAPI2_UnloadDLL(void* dll_handle)
 {   // close the dynamicly loaded library
 	if (dll_handle)
 		dlclose(dll_handle);
