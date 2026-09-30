@@ -5,9 +5,10 @@ A Windows VST plugin that holds a live audio source's loudness on a LUFS target,
 ![The LevelAnchor plugin window](LevelAnchor-Screenshot.png)
 
 LevelAnchor measures programme loudness continuously and modulates output gain to keep it on
-the target you set. It does not reshape the audio the way a compressor does — it moves the
-level, slowly enough to stay inaudible, and leaves the dynamics alone. Set a target,
-leave it running, and the source stays where you put it.
+the target you set. It moves the level, slowly enough to stay inaudible, and most of the time
+leaves the dynamics alone. Only a sudden jump gets a brief cut and a gentle compressor, until
+the level ride catches up. Set a target, leave it running, and the source stays where you put
+it.
 
 It is built for streamers, primarily OBS Studio, and it is a showcase of **LevelAPI** — the
 loudness engine doing the actual work, which is licensed separately (see
