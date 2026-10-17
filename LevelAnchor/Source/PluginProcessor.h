@@ -28,6 +28,8 @@
     using AdjusterType = RealtimeAdjuster;
 #endif
 
+#include "BuildInfo.h" // LEVELANCHOR_DEV_BUILD, which decides the modes on offer
+
 #define TARGET_MIN -24.f
 #define TARGET_MAX -8.f
 #define TARGET_DEFAULT -16.f // single source of truth for the shipping default
@@ -41,7 +43,7 @@
     - Exposes Target LUFS (-24..-8). The adjuster preset is fixed at Medium
       (Slow/Fast still exist in the RealtimeAdjuster core for internal testing).
     - Periodically (~40 ms) prepares UI data snapshot.
-    - Reports the engine's fixed look-ahead delay to the host.
+    - Reports the engine's delay to the host; it depends on the engine mode.
 */
 class LevelAnchorAudioProcessor : public juce::AudioProcessor,
                                   private juce::Timer
@@ -102,6 +104,12 @@ public:
         // previous snapshot, in dB, >= 0. Drives the editor's PEAK LED and the
         // amber marks on the gain trace.
         float gainReductionDb = 0.0f;
+        // The engine mode in force (AdjusterType::kMode*) and its delay in
+        // samples. The mode can differ from the one requested: the dialogue
+        // mode runs as low latency at a rate it does not support, and a DLL
+        // that predates modes runs standard.
+        int mode = 0;
+        int latencySamples = 0;
         // False when no adjuster exists (dynamic build with the LevelAPI2 DLL
         // missing/refused), i.e. every field above is meaningless and audio is
         // passing through untouched. The editor ignores this for now; it is
@@ -123,6 +131,33 @@ public:
 
     juce::AudioProcessorValueTreeState& getValueTreeState() noexcept { return parameters_; }
 
+    //==============================================================================
+    // Engine mode (AdjusterType::kModeStandard, kModeLowLatency,
+    // kModeLowLatencyDialogue). A mode change is a Reset with the new mode: it
+    // restarts the measurement, drops a moment of audio, and changes the delay
+    // reported to the host. That is why it is not a host parameter (nothing can
+    // automate it); it is saved with the project as a property of the parameter
+    // state instead.
+    static constexpr int kNumModes = 3;
+
+    // Which modes this build lets the user select. Mode 0 always. A build made
+    // from this source offers every mode, so with a licensed LevelAPI2 library
+    // you get all of them; the free release binary offers only the standard
+    // mode, and the editor shows the others as locked.
+    static constexpr bool isModeOffered(int mode) noexcept
+    {
+       #if LEVELANCHOR_DEV_BUILD
+        return mode >= 0 && mode < kNumModes;
+       #else
+        return mode == AdjusterType::kModeStandard;
+       #endif
+    }
+
+    /** Message thread. Stores the mode (falling back to the nearest offered one
+        below it) and, while audio is running, rebuilds the engine with it. */
+    void requestMode(int mode);
+    int  getRequestedMode() const noexcept { return requestedMode_.load(); }
+
 private:
     // The DSP engine, of whichever kind this configuration links (see the alias
     // at the top of this file). Null means no engine -- audio then passes
@@ -138,16 +173,26 @@ private:
     // Builds and configures an engine. Allocates and initialises meters, so
     // never call it from processBlock. Returns null when the dynamic path has
     // no usable LevelAPI2 DLL.
-    std::unique_ptr<AdjusterType> createAdjuster(double sampleRate, int numChannels, float targetLufs) const;
+    std::unique_ptr<AdjusterType> createAdjuster(double sampleRate, int numChannels, float targetLufs, int mode) const;
+
+    // The mode every new engine is built with (see requestMode). Already
+    // limited to an offered mode.
+    std::atomic<int>  requestedMode_{ 0 };
+    // Between prepareToPlay and releaseResources. A mode change outside that
+    // window is only stored; prepareToPlay builds with it.
+    std::atomic<bool> prepared_{ false };
+    static int nearestOfferedMode(int mode) noexcept;
 
     // --- Reset: a fresh engine built off the audio thread, swapped in by processBlock ---
     // Resetting the running engine in place would allocate on the audio thread,
     // and doing it from the message thread would race ProcessBlock. Instead:
-    //   1. processBlock sees the one-shot "reset" parameter and raises resetRequested_.
+    //   1. processBlock sees the one-shot "reset" parameter and raises
+    //      resetRequested_ (requestMode raises it too).
     //   2. timerCallback (message thread) builds a new engine into pendingAdjuster_.
     //   3. processBlock takes it, hands the old one to retiredAdjuster_, then
     //      clears pendingAdjuster_.
-    //   4. timerCallback deletes the retired engine.
+    //   4. timerCallback deletes the retired engine and reports the new one's
+    //      delay to the host (pendingLatency_), since a mode change changes it.
     // One slot each way. The timer only fills pendingAdjuster_ when it is empty,
     // and processBlock writes retiredAdjuster_ before emptying it, so an engine
     // is never overwritten before it is deleted.
@@ -155,6 +200,7 @@ private:
     std::atomic<AdjusterType*> pendingAdjuster_{ nullptr };
     std::atomic<AdjusterType*> retiredAdjuster_{ nullptr };
     int numChannels_ = 2; // what prepareToPlay built with; the timer rebuilds with the same
+    int pendingLatency_ = 0; // message thread: delay of the engine the timer last built
 
     void timerCallback() override;
     void discardPendingAdjusters() noexcept; // only while no audio is running

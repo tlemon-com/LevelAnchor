@@ -109,7 +109,11 @@ namespace
 
         Only what the plugin actually calls is listed. RealtimeAdjuster_Adjust
         (planar) is required; its interleaved sibling is not, because nothing
-        here calls it -- refusing a DLL over an unused export would be wrong. */
+        here calls it -- refusing a DLL over an unused export would be wrong.
+
+        RealtimeAdjuster_SetMode / _GetMode are deliberately NOT listed: a DLL
+        without them still runs the standard mode, so they are checked for
+        null where they are called instead (DynamicRealtimeAdjuster::SetMode). */
     const char* findMissingFunction (const LevelAPI2_FunctionHandles& fn)
     {
         if (fn.Create_RealtimeAdjuster == nullptr)                return "Create_RealtimeAdjuster";
@@ -327,11 +331,10 @@ DynamicRealtimeAdjuster::DynamicRealtimeAdjuster (double sampleRate, int numChan
     fn.RealtimeAdjuster_SetPreset (object_, preset);
     fn.RealtimeAdjuster_SetTargetLUFS (object_, targetLufs);
 
-    // Then Reset, which the static path also does immediately after construction.
-    // Redundant in principle -- the constructor already configured everything --
-    // but mirroring the working path exactly removes one difference between the
-    // two, and Reset re-Inits every internal meter from the values below.
-    Reset (numChannels_, sampleRate, bitdepth);
+    // No Reset here. The caller sets the mode and then calls Reset, the same
+    // sequence as with the static class, so both linking paths share it (see
+    // createAdjuster in PluginProcessor.cpp). Reset allocates about 50 MB, so
+    // doing it here as well would cost a second one for nothing.
 }
 
 DynamicRealtimeAdjuster::~DynamicRealtimeAdjuster()
@@ -351,6 +354,31 @@ void DynamicRealtimeAdjuster::Reset (int numChannels, double sampleRate, unsigne
                                                 (unsigned int) numChannels_,
                                                 (unsigned int) juce::roundToInt (sampleRate),
                                                 bitdepth);
+}
+
+bool DynamicRealtimeAdjuster::SetMode (int mode)
+{
+    if (object_ == nullptr || mode < 0)
+        return false;
+
+    // Optional exports (see findMissingFunction): a DLL that predates modes
+    // leaves these null and can only run the standard mode, so asking it for
+    // that one is a success with nothing to do.
+    if (api_->fn.RealtimeAdjuster_SetMode == nullptr)
+        return mode == kModeStandard;
+
+    return api_->fn.RealtimeAdjuster_SetMode (object_, (unsigned int) mode);
+}
+
+int DynamicRealtimeAdjuster::GetMode() const
+{
+    if (object_ == nullptr || api_->fn.RealtimeAdjuster_GetMode == nullptr)
+        return kModeStandard;
+
+    // -1 only for an invalid object, which object_ != nullptr rules out; kept
+    // in range anyway, since the caller indexes by it.
+    const int mode = api_->fn.RealtimeAdjuster_GetMode (object_);
+    return mode >= 0 ? mode : kModeStandard;
 }
 
 void DynamicRealtimeAdjuster::SetTargetLUFS (float targetLufs)

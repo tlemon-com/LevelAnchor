@@ -25,6 +25,13 @@
 #ifndef LEVELANCHOR_VERSION
   #define LEVELANCHOR_VERSION  "dev"
   #define LEVELANCHOR_BUILD_ID "local"
+  #define LEVELANCHOR_DEV_BUILD 1
+#endif
+
+// 1 for any build made without the release script, 0 for a release. Decides
+// which engine modes can be selected (LevelAnchorAudioProcessor::isModeOffered).
+#ifndef LEVELANCHOR_DEV_BUILD
+  #define LEVELANCHOR_DEV_BUILD 0
 #endif
 
 // Composed at compile time (adjacent string literals), so painting it costs

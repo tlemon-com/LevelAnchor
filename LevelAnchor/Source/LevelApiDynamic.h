@@ -108,9 +108,22 @@ public:
         Medium == 1. */
     static constexpr unsigned int PresetMedium = 1;
 
+    /** The engine modes, same values as the static class and the C API.
+        Standard is the 50 ms chain; the two low-latency modes run a 2 ms line,
+        and the dialogue one holds the dialogue at the target instead of the
+        full mix (32, 44.1 and 48 kHz only). */
+    static constexpr int kModeStandard           = 0;
+    static constexpr int kModeLowLatency         = 1;
+    static constexpr int kModeLowLatencyDialogue = 2;
+
     /** Argument order matches the static RealtimeAdjuster constructor. The C
         API's Create takes neither preset nor target, so both are applied
         immediately afterwards.
+
+        Like the static class, a new instance is set up with SetMode (if a mode
+        other than standard is wanted) and then Reset, which is when the mode
+        takes effect. The constructor does not Reset on its own, so the caller
+        pays for one Reset, not two.
 
         bitdepth is the word length the HOST quantises the output to, not the
         depth of the incoming audio: it drives the engine's dither. 0 means a
@@ -131,11 +144,22 @@ public:
     // Mirrors RealtimeAdjuster. Same names, same argument order.
     // Reset allocates inside the library: call it off the audio thread.
     void Reset (int numChannels, double sampleRate, unsigned int bitdepth);
+
+    /** Requests a mode for the next Reset. False, with nothing changed, for an
+        unknown mode, for the dialogue mode at a rate it cannot run at, and for
+        any mode but standard on a DLL that predates modes. */
+    bool SetMode (int mode);
+
+    /** The mode in force since the last Reset. A DLL that predates modes always
+        runs standard, so that is what it reports. */
+    int GetMode() const;
+
     void SetTargetLUFS (float targetLufs);
     void ProcessBlock (juce::AudioBuffer<float>& buffer);
 
-    /** The engine's delay from input to output, in samples. Constant from
-        construction or Reset until the next Reset; report it to the host. */
+    /** The engine's delay from input to output, in samples. Depends on the mode
+        and the sample rate, and is constant from Reset until the next Reset;
+        read it after every Reset and report it to the host. */
     int GetLatencySamples() const;
 
     float GetLastAppliedGainDb() const;

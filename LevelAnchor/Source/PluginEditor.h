@@ -7,6 +7,7 @@
 #include "ui/TargetStrip.h"
 #include "ui/AboutPanel.h"
 #include "ui/PeakLed.h"
+#include "ui/ModePanel.h"
 
 // ===============================================================
 // Editor Class
@@ -40,11 +41,13 @@ private:
     std::unique_ptr<TargetStrip> targetStrip; // 32-LED touch strip, left side
 
     juce::TextButton resetButton;
+    DelayButton      delayButton;   // under RESET: current delay; opens the mode panel
 
     PeakLed peakLed;                // top bar, on the logo's axis: peak stage acting
 
     PoweredByBadge poweredBy;       // bottom-center "powered by" badge; opens the About panel
     AboutPanel     aboutPanel;      // full-editor overlay (hidden by default)
+    ModePanel      modePanel;       // full-editor overlay: engine mode choice (hidden by default)
 
     // Small LCD windows -- same 5x7 font and cell pitch as the big screen
     MatrixReadout timerReadout;     // top-right: elapsed time / warmup countdown

@@ -3,7 +3,7 @@
 // Build revision of the LevelAPI2 release this header ships with. GetRevision()
 // returns the revision of the DLL actually loaded; comparing the two catches a
 // header and a binary that came from different releases.
-#define LEVELAPI2_HEADER_REVISION 202609280
+#define LEVELAPI2_HEADER_REVISION 202610170
 
 //#include <iostream> // used for printf()
 
@@ -229,7 +229,8 @@ typedef float (*LevelAPI2_tablePos2LUFS_Ptr) (LevelAPI2Ptr obj, const int pos);
 // off the audio thread and never during an Adjust call. Adjust and AdjustInterleaved never
 // allocate or lock, and take any number of frames per call. Every other getter and setter is
 // safe from any thread, except GetLevel, which reads a live meter: call it from the thread that
-// calls Adjust, between calls. A setter takes effect at the start of the next Adjust call.
+// calls Adjust, between calls; in mode 2 (SetMode below) it reads up to 10 ms behind the output.
+// A setter takes effect at the start of the next Adjust call.
 typedef LevelAPI2_RealtimeAdjusterPtr(*LevelAPI2_RealtimeAdjuster_Create_Ptr) (const unsigned int channels, const unsigned int samplerate, const unsigned int bitdepth);
 typedef void (*LevelAPI2_RealtimeAdjuster_Destroy_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
 typedef bool (*LevelAPI2_RealtimeAdjuster_Adjust_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj, float** samples, const unsigned int sample_frames);
@@ -252,8 +253,9 @@ typedef float (*LevelAPI2_RealtimeAdjuster_GetBS1771_Ptr) (LevelAPI2_RealtimeAdj
 typedef bool (*LevelAPI2_RealtimeAdjuster_GetLimiterEnabled_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
 typedef bool (*LevelAPI2_RealtimeAdjuster_SetLimiterEnabled_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj, const bool enable);
 // The delay between a sample going in and the same sample coming out, in samples. Constant
-// from Create or Reset until the next Reset, whatever the preset or the limiter switch; delay
-// the picture by it to keep lip-sync.
+// from Create or Reset until the next Reset, whatever the preset or the limiter switch; it
+// depends on the mode (SetMode below) and the sample rate. Delay the picture by it to keep
+// lip-sync.
 typedef unsigned int (*LevelAPI2_RealtimeAdjuster_GetLatencySamples_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
 // How far the adjuster's peak control held the programme down during the last Adjust call,
 // in dB, 0 or more: for a gain-reduction meter.
@@ -268,13 +270,30 @@ typedef bool (*LevelAPI2_RealtimeAdjuster_SetProgramLengthSeconds_Ptr) (LevelAPI
 typedef unsigned int (*LevelAPI2_RealtimeAdjuster_GetProgramLengthSeconds_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
 // The true-peak ceiling the adjuster's limiter holds, in dBTP; -1.0, the EBU R128 figure, by
 // default. The limiter measures with a 4x oversampled true-peak estimate and holds the ceiling
-// on that estimate. On material with strong content close to half the sample rate (noise, some
-// synthesised or lossy sources) a BS.1770 true-peak meter can read up to about 0.6 dB higher;
-// set the ceiling that much lower for a guarantee on such material. Accepted: -12.0 to 0.0.
-// Anything else returns false and changes nothing. Kept across Reset. Mid-stream, a lower
-// ceiling is reached within 20 ms, and until then peaks stay under the ceiling before it.
+// on that estimate. In mode 0, on material with strong content close to half the sample rate
+// (noise, some synthesised or lossy sources) a high-precision true-peak meter, such as
+// LevelAPI2's own TruePeak, can read up to about 1.7 dB higher; set the ceiling that much lower
+// for a guarantee on such material. In modes 1 and 2 the estimate also reads the point halfway
+// between samples, and on noise it reads about 0.1 dB under such a meter. Accepted: -12.0 to
+// 0.0. Anything else returns false and changes nothing. Kept across Reset. Mid-stream, a lower
+// ceiling is reached within the limiter's look-ahead (20 ms in mode 0, 2 ms in modes 1 and 2),
+// and until then peaks stay under the ceiling before it.
 typedef bool (*LevelAPI2_RealtimeAdjuster_SetTruePeakCeilingDb_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj, const float dbtp);
 typedef float (*LevelAPI2_RealtimeAdjuster_GetTruePeakCeilingDb_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
+// Which configuration of the adjuster runs. 0 = standard: 50 ms latency, the default.
+// 1 = low latency: 2 ms (96 samples at 48 kHz, 88 at 44.1 kHz, 64 at 32 kHz). 2 = low latency
+// with dialogue-gated calibration, for speech-led programming: the adjuster holds the output's
+// dialogue loudness at the target instead of the full programme's (the library's speech
+// detector; 32, 44.1 and 48 kHz only). Where speech is under 10 % of the output measured, it holds the
+// programme as mode 1 does; over 25 %, the dialogue; in between, a blend. For music use mode 1:
+// speech detection can take vocals for dialogue.
+// Takes effect at the next RealtimeAdjuster_Reset, which allocates: call Reset after SetMode.
+// Returns false and changes nothing for any other value, and for mode 2 at a sample rate where
+// dialogue detection cannot run. Kept across Reset; a Reset to such a rate while mode 2 is
+// requested runs mode 1, and GetMode says so.
+typedef bool (*LevelAPI2_RealtimeAdjuster_SetMode_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj, const unsigned int mode);
+// The mode in force since Create or the last Reset: 0, 1 or 2; -1 if obj is invalid.
+typedef int (*LevelAPI2_RealtimeAdjuster_GetMode_Ptr) (LevelAPI2_RealtimeAdjusterPtr obj);
 
 
 struct LevelAPI2_FunctionHandles
@@ -407,6 +426,9 @@ struct LevelAPI2_FunctionHandles
 
 	LevelAPI2_RealtimeAdjuster_SetTruePeakCeilingDb_Ptr RealtimeAdjuster_SetTruePeakCeilingDb;
 	LevelAPI2_RealtimeAdjuster_GetTruePeakCeilingDb_Ptr RealtimeAdjuster_GetTruePeakCeilingDb;
+
+	LevelAPI2_RealtimeAdjuster_SetMode_Ptr RealtimeAdjuster_SetMode;
+	LevelAPI2_RealtimeAdjuster_GetMode_Ptr RealtimeAdjuster_GetMode;
 
 };
 
@@ -605,6 +627,8 @@ static void* InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles
 	levelAPI2->RealtimeAdjuster_GetProgramLengthSeconds = NULL;
 	levelAPI2->RealtimeAdjuster_SetTruePeakCeilingDb = NULL;
 	levelAPI2->RealtimeAdjuster_GetTruePeakCeilingDb = NULL;
+	levelAPI2->RealtimeAdjuster_SetMode = NULL;
+	levelAPI2->RealtimeAdjuster_GetMode = NULL;
 
 
 	// handle to loaded library module, returns a handle to the DLL, otherwise NULL
@@ -777,6 +801,8 @@ static void* InitFunctions(const char* libPath, struct LevelAPI2_FunctionHandles
 	levelAPI2->RealtimeAdjuster_GetProgramLengthSeconds = (LevelAPI2_RealtimeAdjuster_GetProgramLengthSeconds_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_GetProgramLengthSeconds");
 	levelAPI2->RealtimeAdjuster_SetTruePeakCeilingDb = (LevelAPI2_RealtimeAdjuster_SetTruePeakCeilingDb_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_SetTruePeakCeilingDb");
 	levelAPI2->RealtimeAdjuster_GetTruePeakCeilingDb = (LevelAPI2_RealtimeAdjuster_GetTruePeakCeilingDb_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_GetTruePeakCeilingDb");
+	levelAPI2->RealtimeAdjuster_SetMode = (LevelAPI2_RealtimeAdjuster_SetMode_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_SetMode");
+	levelAPI2->RealtimeAdjuster_GetMode = (LevelAPI2_RealtimeAdjuster_GetMode_Ptr)GETHANDLE_FUNC(lib_handle, "RealtimeAdjuster_GetMode");
 
 	return lib_handle;
 };

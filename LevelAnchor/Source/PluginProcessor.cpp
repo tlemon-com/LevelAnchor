@@ -70,11 +70,11 @@ void LevelAnchorAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
 
     numChannels_ = numCh;
     discardPendingAdjusters(); // a reset built for the old rate must not be swapped in
-    adjuster_ = createAdjuster(sampleRate, numCh, targetLUFS);
+    adjuster_ = createAdjuster(sampleRate, numCh, targetLUFS, requestedMode_.load());
 
-    // The engine's delay is its fixed look-ahead line, constant until the next
-    // Reset, and a reset engine at the same rate has the same one, so this is
-    // the only place it needs reporting. No engine means pass-through, no delay.
+    // The engine's delay depends on its mode and the rate, and holds until the
+    // next Reset. An engine swapped in later reports its own from
+    // timerCallback. No engine means pass-through, no delay.
     setLatencySamples(adjuster_ != nullptr ? adjuster_->GetLatencySamples() : 0);
 
     samplesSinceLastUIDispatch_ = 0;
@@ -83,21 +83,25 @@ void LevelAnchorAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     uiDispatchIntervalSamples_ = static_cast<int>(0.04 * sampleRate_); // ~40ms
 
     ResetDeviationStats();
+
+    prepared_ = true;
 }
 
 void LevelAnchorAudioProcessor::releaseResources()
 {
+    prepared_ = false;
     discardPendingAdjusters();
     adjuster_.reset();
 }
 
-std::unique_ptr<AdjusterType> LevelAnchorAudioProcessor::createAdjuster(double sampleRate, int numChannels, float targetLufs) const
+std::unique_ptr<AdjusterType> LevelAnchorAudioProcessor::createAdjuster(double sampleRate, int numChannels, float targetLufs, int mode) const
 {
     // Preset is fixed at Medium (the tuned reference); Slow/Fast remain in the
     // RealtimeAdjuster core for internal testing but are not user-facing.
-    // The only path-specific code in this class. Both adjusters take the same
-    // arguments in the same order; only the preset differs in type, being a C++
-    // enum on one side and a plain unsigned across the DLL boundary on the other.
+    // The construction is the only path-specific code in this class. Both
+    // adjusters take the same arguments in the same order; only the preset
+    // differs in type, being a C++ enum on one side and a plain unsigned across
+    // the DLL boundary on the other.
 #if __STATIC_LIB__ == 0
     auto adjuster = std::make_unique<AdjusterType>(sampleRate, numChannels, DynamicRealtimeAdjuster::PresetMedium, targetLufs, kHostBitDepth);
 
@@ -111,10 +115,41 @@ std::unique_ptr<AdjusterType> LevelAnchorAudioProcessor::createAdjuster(double s
     }
 #else
     auto adjuster = std::make_unique<AdjusterType>(sampleRate, numChannels, Preset::Medium, targetLufs, kHostBitDepth);
-    adjuster->Reset(numChannels, sampleRate, kHostBitDepth);
 #endif
 
+    // A mode takes effect at Reset, so it is set first. The dialogue mode is
+    // refused at a rate it cannot run at; low latency is then the nearest
+    // match, which is also what the engine itself falls back to. Whatever
+    // runs in the end, GetMode reports it.
+    if (!adjuster->SetMode(mode) && mode == AdjusterType::kModeLowLatencyDialogue)
+        adjuster->SetMode(AdjusterType::kModeLowLatency);
+
+    adjuster->Reset(numChannels, sampleRate, kHostBitDepth);
+
     return adjuster;
+}
+
+void LevelAnchorAudioProcessor::requestMode(int mode)
+{
+    mode = nearestOfferedMode(mode);
+    parameters_.state.setProperty("engineMode", mode, nullptr); // saved with the project
+
+    // Only a change rebuilds, and only while audio runs; before that,
+    // prepareToPlay builds with the stored mode.
+    if (requestedMode_.exchange(mode) != mode && prepared_.load())
+        resetRequested_.store(true, std::memory_order_release);
+}
+
+// A mode this build does not offer (e.g. from a project saved by a build that
+// did) steps down to the nearest offered one; mode 0 is always offered.
+int LevelAnchorAudioProcessor::nearestOfferedMode(int mode) noexcept
+{
+    mode = jlimit(0, kNumModes - 1, mode);
+
+    while (mode > 0 && !isModeOffered(mode))
+        --mode;
+
+    return mode;
 }
 
 // Message thread. Steps 2 and 4 of the reset handoff described in PluginProcessor.h.
@@ -125,13 +160,23 @@ void LevelAnchorAudioProcessor::timerCallback()
         return;
 
     // The slot is empty, so any swap has finished and the old engine is ours.
-    delete retiredAdjuster_.exchange(nullptr, std::memory_order_acq_rel);
+    // A finished swap also means the engine built below on an earlier tick is
+    // now the one running, so its delay is the one the host must compensate.
+    // setLatencySamples notifies the host only when the value changes.
+    if (AdjusterType* retired = retiredAdjuster_.exchange(nullptr, std::memory_order_acq_rel))
+    {
+        delete retired;
+        setLatencySamples(pendingLatency_);
+    }
 
     if (!resetRequested_.exchange(false, std::memory_order_acq_rel))
         return;
 
-    if (auto fresh = createAdjuster(sampleRate_, numChannels_, targetLufsParamValue_.load()))
+    if (auto fresh = createAdjuster(sampleRate_, numChannels_, targetLufsParamValue_.load(), requestedMode_.load()))
+    {
+        pendingLatency_ = fresh->GetLatencySamples();
         pendingAdjuster_.store(fresh.release(), std::memory_order_release);
+    }
 }
 
 void LevelAnchorAudioProcessor::discardPendingAdjusters() noexcept
@@ -232,6 +277,8 @@ void LevelAnchorAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuf
         data.currentMValue = jmax<float>(adjuster_->GetBS1771(), -70.f);
         data.gainReductionDb = gainReductionPeakDb_;
         gainReductionPeakDb_ = 0.0f;
+        data.mode = adjuster_->GetMode();
+        data.latencySamples = adjuster_->GetLatencySamples();
         data.index = samplesCounter_;
         data.samplerate = (int)getSampleRate();
 
@@ -336,7 +383,11 @@ void LevelAnchorAudioProcessor::setStateInformation(const void* data, int sizeIn
 {
     ValueTree tree = ValueTree::readFromData(data, static_cast<size_t>(sizeInBytes));
     if (tree.isValid())
+    {
         parameters_.replaceState(tree);
+        // A project saved before modes existed has no property: mode 0.
+        requestMode(static_cast<int>(parameters_.state.getProperty("engineMode", 0)));
+    }
 }
 //==============================================================================
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

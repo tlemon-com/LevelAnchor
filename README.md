@@ -10,7 +10,7 @@ leaves the dynamics alone. Only a sudden jump gets a brief cut and a gentle comp
 the level ride catches up. Set a target, leave it running, and the source stays where you put
 it.
 
-It is built for streamers, primarily OBS Studio, and it is a showcase of **LevelAPI** — the
+It is built for streamers, primarily OBS Studio, and it is a showcase of **LevelAPI**, the
 loudness engine doing the actual work, which is licensed separately (see
 [The engine](#the-engine-and-why-it-is-not-in-this-repository) below).
 
@@ -37,25 +37,27 @@ OBS setup](https://www.youtube.com/watch?v=pQphGZ2-RlU) (2:44).
   update check.
 
 Loudness measurement follows the ITU-R BS.1770 / EBU R 128 lineage. The interesting part is not
-the measurement — free meters are everywhere — it is holding a target in real time, when
+the measurement (free meters are everywhere). It is holding a target in real time, when
 loudness is only known *after* the audio has played.
 
 ## What it is not
 
 - Not a metering suite, and not a mastering chain. It does one job: anchor to a target LUFS
   level.
-- Not a limiter — although it contains one. The -1 dB ceiling exists to keep the gain change
+- Not a limiter, although it contains one. The -1 dB ceiling exists to keep the gain change
   from clipping, not to be driven as a loudness tool.
 
 ## What the engine does beyond this plugin
 
 The plugin has one control on purpose. LevelAPI2, the engine underneath it, offers more to
-products built on it. Two examples:
+products built on it. Three examples:
 
 - **Rolling calibration for continuous feeds.** The plugin aims the output's loudness since it
   was loaded (or reset) at the target, which suits a stream with a start and an end. The engine
   can aim the last stretch of output at it instead, for channels that never stop.
 - **An adjustable true-peak ceiling.** The plugin keeps it at -1 dBTP.
+- **Low-latency modes, 2 ms instead of 50 ms.** The released plugin shows them but runs the
+  standard mode; a build from this source with a licensed LevelAPI2 library offers every mode.
 
 These are left out of the plugin deliberately, not missing. If your product needs them, see
 [LevelAPI2 licensing](https://levelapi.dev/?ref=github#licensing).
@@ -64,8 +66,8 @@ These are left out of the plugin deliberately, not missing. If your product need
 
 The real-time loudness measurement and adjustment core is **LevelAPI2**, a closed-source library.
 It is not in this tree and will not be. What *is* here is the entire plugin around it: the JUCE
-processor and editor, the pixel-matrix UI, the parameter handling, and — most relevant if you are
-evaluating the library — the code that loads LevelAPI2 and calls it from an audio callback.
+processor and editor, the pixel-matrix UI, the parameter handling, and (most relevant if you are
+evaluating the library) the code that loads LevelAPI2 and calls it from an audio callback.
 
 This repository is a working reference integration rather than a sample: the released binary is
 built from this same source, differing only in which linking configuration was used. If you are
@@ -82,7 +84,7 @@ no DLL to install, no key to enter and nothing to configure: drop it in your VST
 works.
 
 **A build you make from this source** uses the dynamic path. It loads LevelAPI2 from its DLL at
-runtime, so it needs a copy of the library — which is what a LevelAPI license gets you. Without
+runtime, so it needs a copy of the library, which is what a LevelAPI license gets you. Without
 one the plugin still compiles, loads and runs; it simply passes audio through unchanged. The
 static configurations are published for transparency rather than as a route to take: building
 that way needs the library as a static lib, which is a separate arrangement.
@@ -98,7 +100,7 @@ Both paths are permanent and both are expected to build. Which one you get is de
 
 | Configuration | Path | Notes |
 |---|---|---|
-| `Debug`, `Release` | **Dynamic** — the default | LevelAPI2 is loaded from its DLL at runtime through the C API in `Source/LevelAPI2_dynlib.h`. This is what you build if you clone the repo. |
+| `Debug`, `Release` | **Dynamic** (the default) | LevelAPI2 is loaded from its DLL at runtime through the C API in `Source/LevelAPI2_dynlib.h`. This is what you build if you clone the repo. |
 | `Debug-static`, `Release-static` | **Static** (`__STATIC_LIB__=1`) | How the released binary is built. Needs LevelAPI2 as a static library, which is a separate arrangement. |
 
 `PluginProcessor` holds whichever adjuster the configuration selected behind an identical method
@@ -111,7 +113,7 @@ surface, so `processBlock` is shared between the two paths.
 - Visual Studio 2022, x64
 - JUCE 8 (developed against 8.0.4) and the Projucer
 - The VST2 SDK 3.6.9. Steinberg no longer licenses VST2, and the SDK is not redistributable, so
-  it is not included here — you need your own copy.
+  it is not included here; you need your own copy.
 - A LevelAPI2 license for the DSP core.
 
 **Steps**
@@ -119,10 +121,10 @@ surface, so `processBlock` is shared between the two paths.
 1. Open `LevelAnchor/LevelAnchor.jucer` in the Projucer.
 2. Point the JUCE module paths at your own JUCE 8 `modules` folder.
 3. Set a `LIBS` environment variable such that `$(LIBS)vst/VST_SDK369/VST2_SDK` resolves to your
-   VST2 SDK. It is concatenated without a separator, so `LIBS` must end in one — or just edit the
+   VST2 SDK. It is concatenated without a separator, so `LIBS` must end in one. Or just edit the
    header path in the Projucer to point wherever your SDK lives.
 4. Save the project to re-export the Visual Studio files, then build
-   `Builds/VisualStudio2022/LevelAnchor.sln` — `Debug` or `Release`, x64.
+   `Builds/VisualStudio2022/LevelAnchor.sln`, `Debug` or `Release`, x64.
 
 Note that the configurations carry a post-build step copying the plugin to
 `C:\Program Files\VSTPlugins`, which needs an elevated Visual Studio; remove it in the Projucer
@@ -134,7 +136,7 @@ None of this applies to the released plugin, which has the library inside it. A 
 source needs `LevelAPI2-x64.dll` at runtime (`LevelAPI2-x64_d.dll` for Debug builds), looked for
 in this order:
 
-1. The `LEVELAPI2_DLL` environment variable — either the DLL itself or the folder holding it.
+1. The `LEVELAPI2_DLL` environment variable: either the DLL itself or the folder holding it.
    A development convenience; nothing in a shipping build depends on it.
 2. Next to the plugin binary. This is the deployment answer.
 3. The bare filename, which hands the search to Windows.
@@ -148,8 +150,8 @@ against it, or you are looking at the library for your own product, get in touch
 
 ## In OBS
 
-Add LevelAnchor as a filter on the audio source you want anchored — open the source's pop-up
-menu and select `Filters` → `+` → `VST 2.x Plug-in` — then set the target and leave it.
+Add LevelAnchor as a filter on the audio source you want anchored: open the source's pop-up
+menu and select `Filters` → `+` → `VST 2.x Plug-in`, then set the target and leave it.
 Correction starts on the first block of audio; there is no warmup to wait through.
 
 Then do the same on every source that makes noise: mic, Desktop Audio, anything else that is
@@ -165,14 +167,14 @@ if you want it.
 
 Three layers, and they are not the same thing:
 
-- **This source code** is **MIT** licensed — see [LICENSE](LICENSE). Read it, copy from it, build
+- **This source code** is **MIT** licensed; see [LICENSE](LICENSE). Read it, copy from it, build
   it, ship it in your own product. The integration code serves as implementation example.
 - **LevelAPI2**, the engine, is closed source and licensed separately on an annual B2B basis. MIT
   covers none of it, it is not in this repository, and a build made from this source does nothing
   useful until you have it. See the
   [LevelAPI2 licence terms](https://levelapi.dev/?ref=github#licensing).
 - **The released plugin** is free to use, including on monetized streams and channels. Above
-  €500k of annual organization revenue, a LevelAPI license is required — the same license that
+  €500k of annual organization revenue, a LevelAPI license is required: the same license that
   covers the engine. The threshold is a hard line, not a suggestion; below it, there is nothing
   to pay and nothing to sign.
 

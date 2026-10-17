@@ -9,7 +9,7 @@ using namespace juce;
 /*
     PluginEditor -- the LevelAnchor editor window: fixed 530x380, not resizable.
     Siblings: ui/PixelScreen.h (the LCD centrepiece), ui/TargetStrip.h,
-    ui/MatrixReadout.h, ui/AboutPanel.h, ui/Palette.h, ui/Fonts.h.
+    ui/MatrixReadout.h, ui/AboutPanel.h, ui/ModePanel.h, ui/Palette.h, ui/Fonts.h.
 
     Design idea: a live stream should be readable at a glance and never demand
     attention -- one target to set, continuous visual feedback instead of dense
@@ -90,6 +90,10 @@ LevelAnchorAudioProcessorEditor::LevelAnchorAudioProcessorEditor(LevelAnchorAudi
     };
     addAndMakeVisible(resetButton);
 
+    // 3a. Delay button under RESET; opens the mode panel (added in step 7)
+    delayButton.onClick = [this] { modePanel.setVisible(true); };
+    addAndMakeVisible(delayButton);
+
     // 3b. Peak LED -- top bar, centred on the logo's axis (see resized())
     addAndMakeVisible(peakLed);
 
@@ -145,6 +149,16 @@ LevelAnchorAudioProcessorEditor::LevelAnchorAudioProcessorEditor(LevelAnchorAudi
     poweredBy.onClick = [this] { aboutPanel.setVisible(true); };
     addAndMakeVisible(poweredBy);
     addChildComponent(aboutPanel); // starts hidden
+
+    // 7b. Mode panel overlay. Every mode is listed; the ones this build does
+    // not offer show locked. The processor rebuilds the engine on a pick.
+    static_assert(ModePanel::kNumModes == LevelAnchorAudioProcessor::kNumModes,
+                  "ModePanel lists every engine mode");
+    for (int m = 0; m < ModePanel::kNumModes; ++m)
+        modePanel.setOffered(m, LevelAnchorAudioProcessor::isModeOffered(m));
+    modePanel.setSelectedMode(processorRef.getRequestedMode());
+    modePanel.onSelect = [this](int mode) { processorRef.requestMode(mode); };
+    addChildComponent(modePanel); // starts hidden
 
     // 8. UI refresh timer -- PixelScreen consumes one tick per callback
     startTimerHz(30);
@@ -278,6 +292,9 @@ void LevelAnchorAudioProcessorEditor::resized()
     timerCaption.setBounds(timerReadout.getX(), timerReadout.getBottom() + 3,
                            timerSize.x, 12);
 
+    // Delay button on the caption line under RESET, as wide as RESET.
+    delayButton.setBounds(resetButton.getX(), timerCaption.getY(), resetButton.getWidth(), 14);
+
     // Peak LED on the window's centre axis, the same axis as the logo in the
     // screen and the badge below, level with the reset button; its caption
     // sits on the TIME caption's line.
@@ -305,6 +322,7 @@ void LevelAnchorAudioProcessorEditor::resized()
     devLabel.setBounds(screenX + 4, pixelScreen.getBottom() - 20, screenW - 8, 16);
 
     aboutPanel.setBounds(getLocalBounds());    // overlay covers everything
+    modePanel.setBounds(getLocalBounds());     // likewise
 }
 
 // =============================================================
@@ -334,6 +352,14 @@ void LevelAnchorAudioProcessorEditor::timerCallback()
     // Before the early return below, so the LED's hold still runs out (and the
     // LED goes dark) when audio stops and the snapshot stops changing.
     updatePeakLed(data.index != prevIndex ? data.gainReductionDb : 0.f);
+
+    // Delay and mode in force. Both setters no-op when nothing changed. With no
+    // engine there is no delay to show, and the panel shows the stored choice.
+    if (data.engineReady && data.samplerate > 0)
+        delayButton.setDelayText(String(roundToInt(1000.0 * data.latencySamples / data.samplerate)) + " ms");
+    else
+        delayButton.setDelayText("--");
+    modePanel.setSelectedMode(data.engineReady ? data.mode : processorRef.getRequestedMode());
 
     if (data.index == prevIndex)
         return; // nothing new from the processor
